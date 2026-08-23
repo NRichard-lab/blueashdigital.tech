@@ -5,6 +5,9 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+ARG SOURCE_VERSION=local
+LABEL org.opencontainers.image.revision=$SOURCE_VERSION
+
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
