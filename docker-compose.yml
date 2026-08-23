@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-portal}
+      POSTGRES_USER: ${POSTGRES_USER:-portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portal-dev-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - portal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal} -d ${POSTGRES_DB:-portal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://portal:portal-dev-password@postgres:5432/portal}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - portal
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+    networks:
+      - portal
+
+volumes:
+  postgres_data:
+
+networks:
+  portal:
+    driver: bridge
+
