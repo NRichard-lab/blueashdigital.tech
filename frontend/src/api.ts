@@ -117,19 +117,61 @@ export type EmailSettingsPayload = {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://api.blueashdigital.tech";
 
+const FIELD_LABELS: Record<string, string> = {
+  email_address: "Gmail Email Address",
+  smtp_username: "Mailbox Username",
+  smtp_password: "SMTP Password",
+  from_email: "From Address",
+  from_name: "From Name",
+  reply_to: "Reply-To Address",
+  app_password: "App Password",
+  recipient: "Test Recipient",
+};
+
+function titleCase(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatValidationMessage(item: unknown): string {
+  if (!item || typeof item !== "object") return String(item);
+  const error = item as { loc?: unknown[]; msg?: unknown; message?: unknown; detail?: unknown };
+  const field = Array.isArray(error.loc) ? String(error.loc[error.loc.length - 1] ?? "") : "";
+  const label = FIELD_LABELS[field] ?? titleCase(field);
+  const message = typeof error.msg === "string" ? error.msg : typeof error.message === "string" ? error.message : typeof error.detail === "string" ? error.detail : "Invalid value";
+  return label ? `${label}: ${message}.` : `${message}.`;
+}
+
+export function formatApiError(error: unknown, fallback = "Request failed."): string {
+  if (error instanceof Error) return error.message && error.message !== "Request failed." ? error.message : fallback;
+  if (typeof error === "string") return error || fallback;
+  if (!error || typeof error !== "object") return fallback;
+  const payload = error as { detail?: unknown; message?: unknown; error?: unknown };
+  if (typeof payload.detail === "string") return payload.detail;
+  if (Array.isArray(payload.detail)) return payload.detail.map(formatValidationMessage).join(" ");
+  if (payload.detail && typeof payload.detail === "object") return formatApiError(payload.detail, fallback);
+  if (typeof payload.message === "string") return payload.message;
+  if (typeof payload.error === "string") return payload.error;
+  return fallback;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
-    ...options,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers ?? {}),
+      },
+      ...options,
+    });
+  } catch {
+    throw new Error("Network request failed. Please check your connection and try again.");
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: "Request failed." }));
-    throw new Error(payload.detail ?? "Request failed.");
+    throw new Error(formatApiError(payload));
   }
 
   if (response.status === 204) {

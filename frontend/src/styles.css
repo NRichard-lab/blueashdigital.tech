@@ -99,6 +99,12 @@ label {
   font-size: 0.9rem;
 }
 
+label small {
+  color: #91a3aa;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
 input {
   width: 100%;
   height: 44px;

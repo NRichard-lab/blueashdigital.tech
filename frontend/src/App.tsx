@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
-import { api, CurrentUser, EmailSettings, EmailSettingsPayload, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
+import { api, CurrentUser, EmailSettings, EmailSettingsPayload, formatApiError, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
 
 type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "admin-settings" | "profile";
 type PublicMode = "login" | "forgot-password" | "reset-password";
@@ -529,6 +529,31 @@ function EmailSettingsPanel({ canEdit, canTest, currentUser }: { canEdit: boolea
 
   useEffect(() => { loadEmail(); }, []);
 
+  const configuredPasswordExists = draft.provider === "hostinger"
+    ? settings?.provider === "hostinger" && settings.has_smtp_password
+    : settings?.provider === "gmail" && settings.has_app_password;
+
+  function isValidEmail(value: string | null | undefined) {
+    const trimmed = value?.trim() ?? "";
+    return Boolean(trimmed) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  }
+
+  function validateEmailDraft() {
+    const errors: string[] = [];
+    if (!draft.provider) errors.push("Provider is required.");
+    if (!draft.from_name?.trim()) errors.push("From Name is required.");
+    if (draft.reply_to && !isValidEmail(draft.reply_to)) errors.push("Reply-To Address must be a complete email address.");
+    if (draft.provider === "hostinger") {
+      if (!isValidEmail(draft.smtp_username)) errors.push("Mailbox Username must be a complete email address.");
+      if (!isValidEmail(draft.from_email)) errors.push("From Address must be a complete email address.");
+      if (!configuredPasswordExists && !draft.smtp_password?.trim()) errors.push("SMTP Password is required until a password has been saved.");
+    } else {
+      if (!isValidEmail(draft.email_address)) errors.push("Gmail Email Address must be a complete email address.");
+      if (!configuredPasswordExists && !draft.app_password?.trim()) errors.push("App Password is required until a password has been saved.");
+    }
+    return errors;
+  }
+
   async function loadEmail() {
     try {
       const result = await api.emailSettings();
@@ -550,12 +575,18 @@ function EmailSettingsPanel({ canEdit, canTest, currentUser }: { canEdit: boolea
       setReplacePassword(result.provider === "hostinger" ? !result.has_smtp_password : !result.has_app_password);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load email settings.");
+      setError(formatApiError(err, "Unable to load email settings."));
     }
   }
 
   async function save() {
     try {
+      const validationErrors = validateEmailDraft();
+      if (validationErrors.length > 0) {
+        setMessage("");
+        setError(validationErrors.join(" "));
+        return;
+      }
       const payload: EmailSettingsPayload = { ...draft, reply_to: draft.reply_to || null };
       if (draft.provider === "gmail") {
         delete payload.smtp_password;
@@ -573,10 +604,10 @@ function EmailSettingsPanel({ canEdit, canTest, currentUser }: { canEdit: boolea
       setSettings(result);
       setReplacePassword(result.provider === "hostinger" ? !result.has_smtp_password : !result.has_app_password);
       setDraft({ ...draft, app_password: "", smtp_password: "" });
-      setMessage("Email settings saved.");
+      setMessage("Configuration saved. Send a test email to verify the provider.");
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save email settings.");
+      setError(formatApiError(err, "Unable to save email settings."));
     }
   }
 
@@ -587,7 +618,7 @@ function EmailSettingsPanel({ canEdit, canTest, currentUser }: { canEdit: boolea
       setError("");
       await loadEmail();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to send test email.");
+      setError(formatApiError(err, "Unable to send test email."));
     }
   }
 
@@ -604,21 +635,37 @@ function EmailSettingsPanel({ canEdit, canTest, currentUser }: { canEdit: boolea
             setReplacePassword(provider === "hostinger" ? !(settings?.has_smtp_password && settings.provider === "hostinger") : !(settings?.has_app_password && settings.provider === "gmail"));
           }}><option value="gmail">Gmail</option><option value="hostinger">Hostinger Email</option></select></label>
           {draft.provider === "gmail" ? <label>Gmail Email Address<input value={draft.email_address ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, email_address: event.target.value })} /></label> : null}
-          {draft.provider === "hostinger" ? <label>Mailbox Username<input value={draft.smtp_username ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, smtp_username: event.target.value })} /></label> : null}
-          {draft.provider === "hostinger" ? <label>From Address<input value={draft.from_email ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, from_email: event.target.value })} /></label> : null}
+        </div>
+        {draft.provider === "hostinger" ? <section className="assignment-panel">
+          <h4>SMTP Account</h4>
+          <div className="form-grid single">
+            <label>Mailbox Username<input value={draft.smtp_username ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, smtp_username: event.target.value })} /><small>Use the Hostinger mailbox that owns this alias.</small></label>
+          </div>
+          {configuredPasswordExists && !replacePassword ? <div className="secret-row"><span>Password already configured</span><button className="secondary-action" disabled={!canEdit} onClick={() => setReplacePassword(true)}>Replace Password</button></div> : <div className="form-grid single"><label>SMTP Password<input value={draft.smtp_password ?? ""} disabled={!canEdit} type="password" onChange={(event) => setDraft({ ...draft, smtp_password: event.target.value })} /></label></div>}
+        </section> : null}
+        <section className="assignment-panel">
+          <h4>Sender</h4>
+          <div className="form-grid">
+          {draft.provider === "hostinger" ? <label>From Address<input value={draft.from_email ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, from_email: event.target.value })} /><small>This may be a Hostinger mailbox or an alias assigned to the mailbox above.</small></label> : null}
           <label>From Name<input value={draft.from_name} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, from_name: event.target.value })} /></label>
           <label>Reply-To Address<input value={draft.reply_to ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, reply_to: event.target.value })} /></label>
+          </div>
+        </section>
+        {draft.provider === "hostinger" ? <section className="assignment-panel">
+          <h4>Connection</h4>
+          <div className="form-grid">
           {draft.provider === "hostinger" ? <label>SMTP Mode<select value={`${draft.smtp_port}:${draft.smtp_security}`} disabled={!canEdit} onChange={(event) => {
             const [port, security] = event.target.value.split(":");
             setDraft({ ...draft, smtp_port: Number(port), smtp_security: security as "SSL_TLS" | "STARTTLS" });
           }}><option value="465:SSL_TLS">465 / SSL-TLS</option><option value="587:STARTTLS">587 / STARTTLS</option></select></label> : null}
-        </div>
-        <div className="static-settings"><span>SMTP Host: {draft.provider === "hostinger" ? "smtp.hostinger.com" : "smtp.gmail.com"}</span><span>Port: {draft.provider === "hostinger" ? draft.smtp_port ?? 465 : 587}</span><span>Encryption: {draft.provider === "hostinger" ? draft.smtp_security === "STARTTLS" ? "STARTTLS" : "SSL/TLS" : "STARTTLS"}</span></div>
+          </div>
+          <div className="static-settings"><span>SMTP Host: smtp.hostinger.com</span><span>Port: {draft.smtp_port ?? 465}</span><span>Encryption: {draft.smtp_security === "STARTTLS" ? "STARTTLS" : "SSL/TLS"}</span></div>
+        </section> : <div className="static-settings"><span>SMTP Host: smtp.gmail.com</span><span>Port: 587</span><span>Encryption: STARTTLS</span></div>}
         <div className="toggle-row"><label><input type="checkbox" checked={draft.enabled} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enable Email</label></div>
-        <section className="assignment-panel">
-          <h4>{draft.provider === "hostinger" ? "Mailbox Password" : "Gmail App Password"}</h4>
-          {((draft.provider === "hostinger" && settings?.provider === "hostinger" && settings?.has_smtp_password) || (draft.provider === "gmail" && settings?.provider === "gmail" && settings?.has_app_password)) && !replacePassword ? <div className="secret-row"><span>••••••••••••••••</span><button className="secondary-action" disabled={!canEdit} onClick={() => setReplacePassword(true)}>Replace Password</button></div> : draft.provider === "hostinger" ? <label>SMTP Password<input value={draft.smtp_password ?? ""} disabled={!canEdit} type="password" onChange={(event) => setDraft({ ...draft, smtp_password: event.target.value })} /></label> : <label>App Password<input value={draft.app_password ?? ""} disabled={!canEdit} type="password" onChange={(event) => setDraft({ ...draft, app_password: event.target.value })} /></label>}
-        </section>
+        {draft.provider === "gmail" ? <section className="assignment-panel">
+          <h4>Gmail App Password</h4>
+          {configuredPasswordExists && !replacePassword ? <div className="secret-row"><span>Password already configured</span><button className="secondary-action" disabled={!canEdit} onClick={() => setReplacePassword(true)}>Replace Password</button></div> : <label>App Password<input value={draft.app_password ?? ""} disabled={!canEdit} type="password" onChange={(event) => setDraft({ ...draft, app_password: event.target.value })} /></label>}
+        </section> : null}
         <footer className="modal-actions"><button className="primary-action compact" disabled={!canEdit} onClick={save}><CheckCircle2 size={16} /> Save Email Settings</button></footer>
       </section>
       <section className="admin-surface">
