@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AppWindow, KeyRound, LockKeyhole, LogOut, Pencil, Plus, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
-import { api, CurrentUser, ManagedUser, PortalApplication, Role, UserPayload } from "./api";
+import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
+import { api, CurrentUser, EmailSettings, EmailSettingsPayload, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
 
-type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "profile";
+type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "admin-settings" | "profile";
+type PublicMode = "login" | "forgot-password" | "reset-password";
 type UserDraft = {
   id?: string;
   username: string;
@@ -38,6 +39,7 @@ export function App() {
   const [category, setCategory] = useState("All");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [publicMode, setPublicMode] = useState<PublicMode>(() => window.location.pathname.includes("reset-password") ? "reset-password" : window.location.pathname.includes("forgot-password") ? "forgot-password" : "login");
 
   useEffect(() => {
     api.me().then(setUser).catch(() => setUser(null)).finally(() => setLoading(false));
@@ -45,7 +47,7 @@ export function App() {
 
   useEffect(() => {
     if (!user) return;
-    if (user.role !== "ADMINISTRATOR" && view.startsWith("admin-")) setView("dashboard");
+    if (!can(user, viewPermission(view))) setView("dashboard");
     api.apps().then(setApps).catch(() => setApps([]));
   }, [user, view]);
 
@@ -92,6 +94,8 @@ export function App() {
   if (loading) return <main className="boot-screen">Blue Ash Digital</main>;
 
   if (!user) {
+    if (publicMode === "forgot-password") return <ForgotPassword onBack={() => setPublicMode("login")} />;
+    if (publicMode === "reset-password") return <ResetPassword onBack={() => setPublicMode("login")} />;
     return (
       <main className="public-shell">
         <section className="login-panel" aria-label="Sign in">
@@ -104,13 +108,13 @@ export function App() {
             {error ? <div className="form-error">{error}</div> : null}
             <button className="primary-action" type="submit"><LockKeyhole size={18} />Sign In</button>
           </form>
-          <a className="quiet-link" href="/forgot-password">Forgot Password?</a>
+          <button className="quiet-button" type="button" onClick={() => setPublicMode("forgot-password")}>Forgot Password?</button>
         </section>
       </main>
     );
   }
 
-  const isAdmin = user.role === "ADMINISTRATOR";
+  const showAdminSection = can(user, "users.view") || can(user, "applications_admin.view") || can(user, "audit.view") || can(user, "settings.view");
 
   return (
     <main className="app-shell">
@@ -120,14 +124,15 @@ export function App() {
           <div><strong>Blue Ash</strong><span>Digital Portal</span></div>
         </div>
         <nav>
-          <button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}><AppWindow size={18} /> Dashboard</button>
-          <button className={view === "applications" ? "active" : ""} onClick={() => setView("applications")}><ShieldCheck size={18} /> Applications</button>
-          {isAdmin ? (
+          {can(user, "dashboard.view") ? <button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}><AppWindow size={18} /> Dashboard</button> : null}
+          {can(user, "applications.view") ? <button className={view === "applications" ? "active" : ""} onClick={() => setView("applications")}><ShieldCheck size={18} /> Applications</button> : null}
+          {showAdminSection ? (
             <>
               <span className="nav-section">Administration</span>
-              <button className={view === "admin-users" ? "active" : ""} onClick={() => setView("admin-users")}><UserRoundCog size={18} /> Users</button>
-              <button className={view === "admin-apps" ? "active" : ""} onClick={() => setView("admin-apps")}><ShieldCheck size={18} /> Applications</button>
-              <button className={view === "admin-audit" ? "active" : ""} onClick={() => setView("admin-audit")}><Activity size={18} /> Audit Log</button>
+              {can(user, "users.view") ? <button className={view === "admin-users" ? "active" : ""} onClick={() => setView("admin-users")}><UserRoundCog size={18} /> Users</button> : null}
+              {can(user, "applications_admin.view") ? <button className={view === "admin-apps" ? "active" : ""} onClick={() => setView("admin-apps")}><ShieldCheck size={18} /> Applications</button> : null}
+              {can(user, "audit.view") ? <button className={view === "admin-audit" ? "active" : ""} onClick={() => setView("admin-audit")}><Activity size={18} /> Audit Log</button> : null}
+              {can(user, "settings.view") ? <button className={view === "admin-settings" ? "active" : ""} onClick={() => setView("admin-settings")}><Settings size={18} /> Settings</button> : null}
             </>
           ) : null}
         </nav>
@@ -141,11 +146,13 @@ export function App() {
         {error ? <div className="form-error page-error">{error}</div> : null}
         {view === "dashboard" || view === "applications" ? (
           <ApplicationDashboard apps={filteredApps} categories={categories} category={category} query={query} setCategory={setCategory} setQuery={setQuery} user={user} launchApplication={launchApplication} />
-        ) : view === "admin-users" && isAdmin ? (
+        ) : view === "admin-users" && can(user, "users.view") ? (
           <UsersAdmin currentUser={user} />
+        ) : view === "admin-settings" && can(user, "settings.view") ? (
+          <SettingsAdmin user={user} />
         ) : view === "profile" ? (
           <Profile user={user} />
-        ) : isAdmin ? (
+        ) : can(user, viewPermission(view)) ? (
           <Placeholder view={view} />
         ) : (
           <Unauthorized />
@@ -153,6 +160,60 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function can(user: CurrentUser, permission: string) {
+  return user.permissions.includes(permission);
+}
+
+function viewPermission(view: View) {
+  const permissions: Record<View, string> = {
+    dashboard: "dashboard.view",
+    applications: "applications.view",
+    "admin-users": "users.view",
+    "admin-apps": "applications_admin.view",
+    "admin-audit": "audit.view",
+    "admin-settings": "settings.view",
+    profile: "profile.manage",
+  };
+  return permissions[view];
+}
+
+function ForgotPassword({ onBack }: { onBack: () => void }) {
+  const [identifier, setIdentifier] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const result = await api.requestPasswordReset(identifier);
+      setMessage(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to request password reset.");
+    }
+  }
+  return <main className="public-shell"><section className="login-panel" aria-label="Forgot password"><div className="brand-mark"><span>BA</span></div><h1>Password Reset</h1><p>Enter your username or email.</p><form onSubmit={submit}><label>Username or Email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>{message ? <div className="success-banner">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}<button className="primary-action" type="submit"><Mail size={18} /> Send Reset Link</button></form><button className="quiet-button" type="button" onClick={onBack}>Back to Sign In</button></section></main>;
+}
+
+function ResetPassword({ onBack }: { onBack: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const token = new URLSearchParams(window.location.search).get("token") ?? "";
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (password !== confirm) return setError("Passwords do not match.");
+    try {
+      const result = await api.completePasswordReset(token, password);
+      setMessage(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to reset password.");
+    }
+  }
+  return <main className="public-shell"><section className="login-panel" aria-label="Reset password"><div className="brand-mark"><span>BA</span></div><h1>Set Password</h1><p>Choose a new portal password.</p><form onSubmit={submit}><label>New Password<input value={password} type="password" onChange={(event) => setPassword(event.target.value)} required minLength={12} /></label><label>Confirm Password<input value={confirm} type="password" onChange={(event) => setConfirm(event.target.value)} required minLength={12} /></label>{message ? <div className="success-banner">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}<button className="primary-action" type="submit"><KeyRound size={18} /> Reset Password</button></form><button className="quiet-button" type="button" onClick={onBack}>Back to Sign In</button></section></main>;
 }
 
 function ApplicationDashboard({ apps, categories, category, query, setCategory, setQuery, user, launchApplication }: { apps: PortalApplication[]; categories: string[]; category: string; query: string; setCategory: (value: string) => void; setQuery: (value: string) => void; user: CurrentUser; launchApplication: (app: PortalApplication) => void }) {
@@ -345,6 +406,207 @@ function UserModal({ draft, setDraft, applications, onCancel, onSave }: { draft:
   );
 }
 
+function SettingsAdmin({ user }: { user: CurrentUser }) {
+  const [tab, setTab] = useState<"roles" | "email" | "general" | "auth">("roles");
+  return (
+    <>
+      <header className="content-header">
+        <div><span className="eyebrow">Administration</span><h2>Settings</h2></div>
+      </header>
+      <div className="settings-tabs">
+        {can(user, "roles.view") ? <button className={tab === "roles" ? "selected" : ""} onClick={() => setTab("roles")}><ShieldCheck size={16} /> Roles & Permissions</button> : null}
+        {can(user, "email_settings.view") ? <button className={tab === "email" ? "selected" : ""} onClick={() => setTab("email")}><Mail size={16} /> Email</button> : null}
+        <button className={tab === "general" ? "selected" : ""} onClick={() => setTab("general")}><Settings size={16} /> General</button>
+        <button className={tab === "auth" ? "selected" : ""} onClick={() => setTab("auth")}><LockKeyhole size={16} /> Authentication</button>
+      </div>
+      {tab === "roles" && can(user, "roles.view") ? <RolesSettings canEdit={can(user, "roles.edit")} /> : null}
+      {tab === "email" && can(user, "email_settings.view") ? <EmailSettingsPanel canEdit={can(user, "email_settings.edit")} canTest={can(user, "email_settings.test")} currentUser={user} /> : null}
+      {tab === "general" ? <div className="admin-surface"><span className="eyebrow">General</span><h3>Portal</h3><p>Portal name and domain are managed through deployment environment configuration.</p></div> : null}
+      {tab === "auth" ? <div className="admin-surface"><span className="eyebrow">Authentication</span><h3>Session Policy</h3><p>Sessions, secure cookies, MFA requirements, and password resets use the configured backend authentication settings.</p></div> : null}
+    </>
+  );
+}
+
+function RolesSettings({ canEdit }: { canEdit: boolean }) {
+  const [roles, setRoles] = useState<RoleRead[]>([]);
+  const [permissions, setPermissions] = useState<PermissionRead[]>([]);
+  const [critical, setCritical] = useState<string[]>([]);
+  const [selectedKey, setSelectedKey] = useState<Role>("ADMINISTRATOR");
+  const [draft, setDraft] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => { loadRoles(); }, []);
+
+  async function loadRoles(nextSelected?: Role) {
+    try {
+      const result = await api.roles();
+      setRoles(result.roles);
+      setPermissions(result.permissions);
+      setCritical(result.critical_permissions);
+      const key = nextSelected ?? selectedKey;
+      const selected = result.roles.find((role) => role.key === key) ?? result.roles[0];
+      if (selected) {
+        setSelectedKey(selected.key);
+        setDraft(new Set(selected.permission_keys));
+      }
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load roles.");
+    }
+  }
+
+  const selectedRole = roles.find((role) => role.key === selectedKey);
+  const grouped = permissions.reduce<Record<string, PermissionRead[]>>((acc, permission) => {
+    acc[permission.group] = [...(acc[permission.group] ?? []), permission];
+    return acc;
+  }, {});
+
+  function chooseRole(role: RoleRead) {
+    setSelectedKey(role.key);
+    setDraft(new Set(role.permission_keys));
+    setMessage("");
+    setError("");
+  }
+
+  function togglePermission(key: string) {
+    const next = new Set(draft);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setDraft(next);
+  }
+
+  async function save() {
+    if (!selectedRole) return;
+    try {
+      const updated = await api.updateRole(selectedRole.key, Array.from(draft));
+      setMessage("Role permissions updated.");
+      await loadRoles(updated.key);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save role permissions.");
+    }
+  }
+
+  return (
+    <div className="settings-layout">
+      <section className="admin-surface">
+        <div className="section-title"><span className="eyebrow">Roles</span><h3>Permission Groups</h3></div>
+        <div className="table-shell compact-table">
+          <table>
+            <thead><tr><th>Role</th><th>Users</th><th>Type</th></tr></thead>
+            <tbody>{roles.map((role) => <tr key={role.key} className={role.key === selectedKey ? "selected-row" : ""} onClick={() => chooseRole(role)}><td>{role.name}</td><td>{role.users_count}</td><td>{role.system ? "System" : "Custom"}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+      <section className="admin-surface permission-editor">
+        <div className="section-title"><span className="eyebrow">{selectedRole?.system ? "System Role" : "Role"}</span><h3>{selectedRole?.name ?? "Role"}</h3><p>{selectedRole?.description}</p></div>
+        {message ? <div className="success-banner">{message}</div> : null}
+        {error ? <div className="form-error">{error}</div> : null}
+        {Object.entries(grouped).map(([group, items]) => (
+          <div className="permission-group" key={group}>
+            <h4>{group}</h4>
+            <div className="permission-list">
+              {items.map((permission) => {
+                const protectedAdmin = selectedRole?.key === "ADMINISTRATOR" && critical.includes(permission.key);
+                return <label key={permission.key}><input type="checkbox" checked={draft.has(permission.key)} disabled={!canEdit || protectedAdmin} onChange={() => togglePermission(permission.key)} /><span>{permission.label}</span></label>;
+              })}
+            </div>
+          </div>
+        ))}
+        <footer className="modal-actions"><button className="primary-action compact" disabled={!canEdit} onClick={save}><CheckCircle2 size={16} /> Save Permissions</button></footer>
+      </section>
+    </div>
+  );
+}
+
+function EmailSettingsPanel({ canEdit, canTest, currentUser }: { canEdit: boolean; canTest: boolean; currentUser: CurrentUser }) {
+  const [settings, setSettings] = useState<EmailSettings | null>(null);
+  const [draft, setDraft] = useState<EmailSettingsPayload>({ provider: "gmail", email_address: "", app_password: "", from_name: "Application Portal", reply_to: "", enabled: false });
+  const [replacePassword, setReplacePassword] = useState(false);
+  const [recipient, setRecipient] = useState(currentUser.email);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => { loadEmail(); }, []);
+
+  async function loadEmail() {
+    try {
+      const result = await api.emailSettings();
+      setSettings(result);
+      setDraft({ provider: "gmail", email_address: result.email_address ?? "", app_password: "", from_name: result.from_name ?? "Application Portal", reply_to: result.reply_to ?? "", enabled: result.enabled });
+      setRecipient(result.reply_to ?? result.email_address ?? currentUser.email);
+      setReplacePassword(!result.has_app_password);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load email settings.");
+    }
+  }
+
+  async function save() {
+    try {
+      const payload: EmailSettingsPayload = { ...draft, reply_to: draft.reply_to || null };
+      if (!replacePassword || !draft.app_password) delete payload.app_password;
+      const result = await api.updateEmailSettings(payload);
+      setSettings(result);
+      setReplacePassword(!result.has_app_password);
+      setDraft({ ...draft, app_password: "" });
+      setMessage("Email settings saved.");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save email settings.");
+    }
+  }
+
+  async function test() {
+    try {
+      const result = await api.testEmail(recipient);
+      setMessage(result.message);
+      setError("");
+      await loadEmail();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to send test email.");
+    }
+  }
+
+  return (
+    <div className="settings-layout">
+      <section className="admin-surface">
+        <div className="section-title"><span className="eyebrow">Email</span><h3>Outgoing Provider</h3></div>
+        {message ? <div className="success-banner">{message}</div> : null}
+        {error ? <div className="form-error">{error}</div> : null}
+        <div className="form-grid">
+          <label>Provider<select value={draft.provider} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, provider: event.target.value as "gmail" })}><option value="gmail">Gmail</option></select></label>
+          <label>Email Address<input value={draft.email_address} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, email_address: event.target.value })} /></label>
+          <label>From Name<input value={draft.from_name} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, from_name: event.target.value })} /></label>
+          <label>Reply-To Address<input value={draft.reply_to ?? ""} disabled={!canEdit} type="email" onChange={(event) => setDraft({ ...draft, reply_to: event.target.value })} /></label>
+        </div>
+        <div className="static-settings"><span>SMTP Host: smtp.gmail.com</span><span>Port: 587</span><span>Encryption: STARTTLS</span></div>
+        <div className="toggle-row"><label><input type="checkbox" checked={draft.enabled} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enable Email</label></div>
+        <section className="assignment-panel">
+          <h4>Gmail App Password</h4>
+          {settings?.has_app_password && !replacePassword ? <div className="secret-row"><span>••••••••••••••••</span><button className="secondary-action" disabled={!canEdit} onClick={() => setReplacePassword(true)}>Replace Password</button></div> : <label>App Password<input value={draft.app_password ?? ""} disabled={!canEdit} type="password" onChange={(event) => setDraft({ ...draft, app_password: event.target.value })} /></label>}
+        </section>
+        <footer className="modal-actions"><button className="primary-action compact" disabled={!canEdit} onClick={save}><CheckCircle2 size={16} /> Save Email Settings</button></footer>
+      </section>
+      <section className="admin-surface">
+        <div className="section-title"><span className="eyebrow">Status</span><h3>{settings?.status ?? "NOT_CONFIGURED"}</h3></div>
+        <p>Provider: Gmail</p>
+        <p>Last Test: {formatDate(settings?.last_test_at ?? null)}</p>
+        <p>Result: {settings?.last_test_result ?? "Never tested"}</p>
+        {settings?.last_error ? <div className="form-error">{settings.last_error}</div> : null}
+        <div className="form-grid single">
+          <label>Test Recipient<input value={recipient} disabled={!canTest} type="email" onChange={(event) => setRecipient(event.target.value)} /></label>
+        </div>
+        <button className="secondary-action" disabled={!canTest} onClick={test}><Mail size={16} /> Send Test Email</button>
+        <section className="help-panel">
+          <h4>Gmail setup</h4>
+          <p>Gmail requires an App Password, not your normal Google password. Enable 2-Step Verification in the Google account, create an App Password, then enter that generated value here.</p>
+        </section>
+      </section>
+    </div>
+  );
+}
+
 function Profile({ user }: { user: CurrentUser }) {
   return <div className="admin-surface"><span className="eyebrow">Profile</span><h2>{user.display_name}</h2><p>{user.email}</p><p>{user.role === "ADMINISTRATOR" ? "Admin" : "User"}</p></div>;
 }
@@ -354,7 +616,7 @@ function Unauthorized() {
 }
 
 function Placeholder({ view }: { view: View }) {
-  const labels: Record<View, string> = { dashboard: "Dashboard", applications: "Applications", "admin-users": "User Administration", "admin-apps": "Application Administration", "admin-audit": "Audit Log", profile: "Profile" };
+  const labels: Record<View, string> = { dashboard: "Dashboard", applications: "Applications", "admin-users": "User Administration", "admin-apps": "Application Administration", "admin-audit": "Audit Log", "admin-settings": "Settings", profile: "Profile" };
   return <div className="admin-surface"><span className="eyebrow">{labels[view]}</span><h2>{labels[view]}</h2><p>This section is available to administrators.</p></div>;
 }
 

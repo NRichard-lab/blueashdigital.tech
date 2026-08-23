@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import administrator
+from app.api.dependencies import require_permission
 from app.core.security import hash_password, utcnow
 from app.database.session import get_db
 from app.models.application import Application, UserApplication
@@ -65,7 +65,7 @@ def revoke_user_sessions(db: Session, user_id: uuid.UUID) -> None:
 
 @router.get("/users", response_model=UserListResponse)
 def list_users(
-    _: User = Depends(administrator),
+    _: User = Depends(require_permission("users.view")),
     db: Session = Depends(get_db),
     search: str = "",
     role: Role | None = None,
@@ -94,7 +94,7 @@ def list_users(
 
 
 @router.get("/users/{user_id}", response_model=UserRead)
-def get_user(user_id: uuid.UUID, _: User = Depends(administrator), db: Session = Depends(get_db)) -> UserRead:
+def get_user(user_id: uuid.UUID, _: User = Depends(require_permission("users.view")), db: Session = Depends(get_db)) -> UserRead:
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -102,7 +102,7 @@ def get_user(user_id: uuid.UUID, _: User = Depends(administrator), db: Session =
 
 
 @router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, request: Request, admin_user: User = Depends(administrator), db: Session = Depends(get_db)) -> UserRead:
+def create_user(payload: UserCreate, request: Request, admin_user: User = Depends(require_permission("users.create")), db: Session = Depends(get_db)) -> UserRead:
     existing = db.scalar(select(User).where(or_(User.username == payload.username, User.email == payload.email.lower())))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email is already in use.")
@@ -125,7 +125,7 @@ def create_user(payload: UserCreate, request: Request, admin_user: User = Depend
 
 
 @router.put("/users/{user_id}", response_model=UserRead)
-def update_user(user_id: uuid.UUID, payload: UserUpdate, request: Request, admin_user: User = Depends(administrator), db: Session = Depends(get_db)) -> UserRead:
+def update_user(user_id: uuid.UUID, payload: UserUpdate, request: Request, admin_user: User = Depends(require_permission("users.edit")), db: Session = Depends(get_db)) -> UserRead:
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -158,7 +158,7 @@ def update_user(user_id: uuid.UUID, payload: UserUpdate, request: Request, admin
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: uuid.UUID, request: Request, admin_user: User = Depends(administrator), db: Session = Depends(get_db)) -> None:
+def delete_user(user_id: uuid.UUID, request: Request, admin_user: User = Depends(require_permission("users.delete")), db: Session = Depends(get_db)) -> None:
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -175,7 +175,7 @@ def delete_user(user_id: uuid.UUID, request: Request, admin_user: User = Depends
 
 
 @router.post("/users/{user_id}/reset-password", response_model=UserRead)
-def reset_password(user_id: uuid.UUID, payload: PasswordResetRequest, request: Request, admin_user: User = Depends(administrator), db: Session = Depends(get_db)) -> UserRead:
+def reset_password(user_id: uuid.UUID, payload: PasswordResetRequest, request: Request, admin_user: User = Depends(require_permission("users.edit")), db: Session = Depends(get_db)) -> UserRead:
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -189,7 +189,7 @@ def reset_password(user_id: uuid.UUID, payload: PasswordResetRequest, request: R
 
 
 @router.post("/users/{user_id}/reset-mfa", response_model=UserRead)
-def reset_mfa(user_id: uuid.UUID, request: Request, admin_user: User = Depends(administrator), db: Session = Depends(get_db)) -> UserRead:
+def reset_mfa(user_id: uuid.UUID, request: Request, admin_user: User = Depends(require_permission("users.edit")), db: Session = Depends(get_db)) -> UserRead:
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -202,13 +202,13 @@ def reset_mfa(user_id: uuid.UUID, request: Request, admin_user: User = Depends(a
 
 
 @router.get("/applications", response_model=list[ApplicationRead])
-def list_admin_applications(_: User = Depends(administrator), db: Session = Depends(get_db)) -> list[ApplicationRead]:
+def list_admin_applications(_: User = Depends(require_permission("applications_admin.view")), db: Session = Depends(get_db)) -> list[ApplicationRead]:
     apps = db.scalars(select(Application).order_by(Application.display_order, Application.name)).all()
     return [ApplicationRead.model_validate(app) for app in apps]
 
 
 @router.get("/audit")
-def list_audit(_: User = Depends(administrator), db: Session = Depends(get_db), limit: int = 25, offset: int = 0):
+def list_audit(_: User = Depends(require_permission("audit.view")), db: Session = Depends(get_db), limit: int = 25, offset: int = 0):
     limit = max(1, min(limit, 100))
     logs = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)).all()
     return [

@@ -144,12 +144,20 @@ input:focus {
   font-weight: 700;
 }
 
-.quiet-link {
+.quiet-link,
+.quiet-button {
   display: block;
   margin-top: 18px;
   color: #98d9e8;
   text-align: center;
   text-decoration: none;
+}
+
+.quiet-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .form-error {
@@ -356,6 +364,133 @@ nav button:hover,
   padding: 28px;
 }
 
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.settings-tabs button {
+  min-height: 40px;
+  border: 1px solid rgba(184, 218, 226, 0.14);
+  border-radius: 6px;
+  background: rgba(184, 218, 226, 0.04);
+  color: #c7d4da;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.settings-tabs button.selected,
+.settings-tabs button:hover {
+  background: rgba(105, 215, 239, 0.12);
+  color: #f5fdff;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-layout .admin-surface {
+  max-width: none;
+  width: 100%;
+}
+
+.section-title h3 {
+  margin-bottom: 6px;
+}
+
+.section-title p {
+  color: #aab9bf;
+}
+
+.compact-table table {
+  min-width: 420px;
+}
+
+.compact-table tr {
+  cursor: pointer;
+}
+
+.selected-row {
+  background: rgba(105, 215, 239, 0.1);
+}
+
+.permission-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.permission-group {
+  border-top: 1px solid rgba(184, 218, 226, 0.12);
+  padding-top: 14px;
+}
+
+.permission-group h4 {
+  margin: 0 0 10px;
+}
+
+.permission-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.permission-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-list input {
+  width: 16px;
+  height: 16px;
+}
+
+.static-settings,
+.secret-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 14px 0;
+}
+
+.static-settings span,
+.secret-row span {
+  border: 1px solid rgba(184, 218, 226, 0.14);
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: rgba(184, 218, 226, 0.05);
+  color: #c7d4da;
+}
+
+.form-grid.single {
+  grid-template-columns: 1fr;
+  margin-bottom: 12px;
+}
+
+.help-panel {
+  margin-top: 18px;
+  border-top: 1px solid rgba(184, 218, 226, 0.12);
+  padding-top: 16px;
+}
+
+.help-panel h4 {
+  margin: 0 0 8px;
+}
+
+.help-panel p {
+  color: #aab9bf;
+  line-height: 1.5;
+}
+
 .admin-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -548,6 +683,10 @@ td {
   }
 
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-layout {
     grid-template-columns: 1fr;
   }
 }

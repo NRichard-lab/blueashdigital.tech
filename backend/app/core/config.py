@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://portal:portal-dev-password@postgres:5432/portal"
     secret_key: str = Field(default="dev-only-secret")
     session_secret: str = Field(default="dev-only-session-secret")
+    email_encryption_key: str | None = None
     session_cookie_name: str = "blueash_session"
     session_max_age_seconds: int = 60 * 60 * 8
     smtp_host: str | None = None

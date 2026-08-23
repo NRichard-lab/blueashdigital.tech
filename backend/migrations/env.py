@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.database.base import Base
-from app.models import audit, application, mfa, password_reset, session, user
+from app.models import audit, application, email_settings, mfa, password_reset, role, session, user
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

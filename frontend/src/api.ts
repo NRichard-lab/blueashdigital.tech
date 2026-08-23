@@ -58,6 +58,54 @@ export type UserPayload = {
   application_ids: string[];
 };
 
+export type PermissionRead = {
+  key: string;
+  label: string;
+  group: string;
+  description: string;
+};
+
+export type RoleRead = {
+  id: string;
+  key: Role;
+  name: string;
+  description: string;
+  system: boolean;
+  users_count: number;
+  permission_keys: string[];
+};
+
+export type RoleListResponse = {
+  roles: RoleRead[];
+  permissions: PermissionRead[];
+  critical_permissions: string[];
+};
+
+export type EmailSettings = {
+  provider: "gmail";
+  email_address: string | null;
+  from_name: string | null;
+  reply_to: string | null;
+  enabled: boolean;
+  status: "NOT_CONFIGURED" | "CONFIGURED" | "VERIFIED" | "ERROR";
+  has_app_password: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  encryption: string;
+  last_test_at: string | null;
+  last_test_result: string | null;
+  last_error: string | null;
+};
+
+export type EmailSettingsPayload = {
+  provider: "gmail";
+  email_address: string;
+  app_password?: string;
+  from_name: string;
+  reply_to?: string | null;
+  enabled: boolean;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://api.blueashdigital.tech";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -112,4 +160,31 @@ export const api = {
       body: JSON.stringify({ temporary_password, force_password_change }),
     }),
   resetMfa: (id: string) => request<ManagedUser>(`/api/admin/users/${id}/reset-mfa`, { method: "POST" }),
+  roles: () => request<RoleListResponse>("/api/admin/settings/roles"),
+  updateRole: (roleKey: Role, permission_keys: string[]) =>
+    request<RoleRead>(`/api/admin/settings/roles/${roleKey}`, {
+      method: "PUT",
+      body: JSON.stringify({ permission_keys }),
+    }),
+  emailSettings: () => request<EmailSettings>("/api/admin/settings/email"),
+  updateEmailSettings: (payload: EmailSettingsPayload) =>
+    request<EmailSettings>("/api/admin/settings/email", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  testEmail: (recipient: string) =>
+    request<{ status: EmailSettings["status"]; message: string }>("/api/admin/settings/email/test", {
+      method: "POST",
+      body: JSON.stringify({ recipient }),
+    }),
+  requestPasswordReset: (identifier: string) =>
+    request<{ message: string }>("/api/auth/password-reset/request", {
+      method: "POST",
+      body: JSON.stringify({ identifier }),
+    }),
+  completePasswordReset: (token: string, password: string) =>
+    request<{ message: string }>("/api/auth/password-reset/complete", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
 };

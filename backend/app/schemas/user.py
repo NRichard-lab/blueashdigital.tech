@@ -2,8 +2,10 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from sqlalchemy.orm import Session
 
 from app.models.user import Role
+from app.services.permission_service import get_user_permission_keys
 
 
 class UserRead(BaseModel):
@@ -36,10 +38,8 @@ class CurrentUser(BaseModel):
     model_config = {"from_attributes": True}
 
 
-def current_user_payload(user) -> CurrentUser:
-    permissions = ["dashboard", "applications", "profile"]
-    if user.role == Role.ADMINISTRATOR:
-        permissions.extend(["admin.users", "admin.applications", "admin.audit"])
+def current_user_payload(user, db: Session) -> CurrentUser:
+    permissions = sorted(get_user_permission_keys(db, user))
     payload = CurrentUser.model_validate(user)
     payload.permissions = permissions
     return payload
