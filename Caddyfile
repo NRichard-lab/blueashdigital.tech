@@ -1,0 +1,9 @@
+blueashdigital.tech, www.blueashdigital.tech {
+  encode zstd gzip
+  reverse_proxy frontend:80
+}
+
+api.blueashdigital.tech {
+  encode zstd gzip
+  reverse_proxy backend:8000
+}

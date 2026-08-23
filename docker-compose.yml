@@ -1,6 +1,23 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - portal
+
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-portal}
       POSTGRES_USER: ${POSTGRES_USER:-portal}
@@ -16,6 +33,7 @@ services:
       retries: 5
 
   backend:
+    restart: unless-stopped
     build:
       context: ./backend
     env_file:
@@ -28,27 +46,29 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     networks:
       - portal
 
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.blueashdigital.tech}
     depends_on:
       - backend
-    ports:
-      - "5173:80"
+    expose:
+      - "80"
     networks:
       - portal
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   portal:
     driver: bridge
-
