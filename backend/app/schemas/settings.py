@@ -36,13 +36,17 @@ class RoleUpdate(BaseModel):
 class EmailSettingsRead(BaseModel):
     provider: EmailProviderType = EmailProviderType.GMAIL
     email_address: EmailStr | None = None
+    smtp_username: EmailStr | None = None
+    from_email: EmailStr | None = None
     from_name: str | None = None
     reply_to: EmailStr | None = None
     enabled: bool = False
     status: EmailStatus = EmailStatus.NOT_CONFIGURED
     has_app_password: bool = False
+    has_smtp_password: bool = False
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
+    smtp_security: str = "STARTTLS"
     encryption: str = "STARTTLS"
     last_test_at: datetime | None = None
     last_test_result: str | None = None
@@ -51,8 +55,13 @@ class EmailSettingsRead(BaseModel):
 
 class EmailSettingsUpdate(BaseModel):
     provider: EmailProviderType = EmailProviderType.GMAIL
-    email_address: EmailStr
+    email_address: EmailStr | None = None
     app_password: str | None = Field(default=None, min_length=8, max_length=256)
+    smtp_username: EmailStr | None = None
+    smtp_password: str | None = Field(default=None, min_length=8, max_length=256)
+    from_email: EmailStr | None = None
+    smtp_port: int = Field(default=465, ge=1, le=65535)
+    smtp_security: str = Field(default="SSL_TLS", pattern="^(SSL_TLS|STARTTLS)$")
     from_name: str = Field(min_length=2, max_length=160)
     reply_to: EmailStr | None = None
     enabled: bool = False

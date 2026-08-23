@@ -11,6 +11,7 @@ from app.database.base import Base
 
 class EmailProviderType(str, enum.Enum):
     GMAIL = "gmail"
+    HOSTINGER = "hostinger"
 
 
 class EmailStatus(str, enum.Enum):
@@ -27,6 +28,11 @@ class EmailSettings(Base):
     provider: Mapped[EmailProviderType] = mapped_column(Enum(EmailProviderType, name="email_provider_enum", values_callable=lambda enum_cls: [item.value for item in enum_cls]), nullable=False, default=EmailProviderType.GMAIL)
     email_address: Mapped[str | None] = mapped_column(String(320))
     encrypted_app_password: Mapped[str | None] = mapped_column(Text)
+    smtp_username: Mapped[str | None] = mapped_column(String(320))
+    encrypted_smtp_password: Mapped[str | None] = mapped_column(Text)
+    from_email: Mapped[str | None] = mapped_column(String(320))
+    smtp_port: Mapped[int] = mapped_column(Integer, nullable=False, default=465)
+    smtp_security: Mapped[str] = mapped_column(String(20), nullable=False, default="SSL_TLS")
     from_name: Mapped[str | None] = mapped_column(String(160))
     reply_to: Mapped[str | None] = mapped_column(String(320))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

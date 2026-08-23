@@ -82,15 +82,19 @@ export type RoleListResponse = {
 };
 
 export type EmailSettings = {
-  provider: "gmail";
+  provider: "gmail" | "hostinger";
   email_address: string | null;
+  smtp_username: string | null;
+  from_email: string | null;
   from_name: string | null;
   reply_to: string | null;
   enabled: boolean;
   status: "NOT_CONFIGURED" | "CONFIGURED" | "VERIFIED" | "ERROR";
   has_app_password: boolean;
+  has_smtp_password: boolean;
   smtp_host: string;
   smtp_port: number;
+  smtp_security: "SSL_TLS" | "STARTTLS";
   encryption: string;
   last_test_at: string | null;
   last_test_result: string | null;
@@ -98,9 +102,14 @@ export type EmailSettings = {
 };
 
 export type EmailSettingsPayload = {
-  provider: "gmail";
-  email_address: string;
+  provider: "gmail" | "hostinger";
+  email_address?: string | null;
   app_password?: string;
+  smtp_username?: string | null;
+  smtp_password?: string;
+  from_email?: string | null;
+  smtp_port?: number;
+  smtp_security?: "SSL_TLS" | "STARTTLS";
   from_name: string;
   reply_to?: string | null;
   enabled: boolean;

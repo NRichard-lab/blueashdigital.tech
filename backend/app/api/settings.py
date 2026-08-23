@@ -6,7 +6,7 @@ from app.api.dependencies import require_permission
 from app.core.secrets import encrypt_secret
 from app.core.security import utcnow
 from app.database.session import get_db
-from app.models.email_settings import EmailSettings, EmailStatus
+from app.models.email_settings import EmailProviderType, EmailSettings, EmailStatus
 from app.models.role import PortalPermission, PortalRole, RolePermission
 from app.models.user import User
 from app.schemas.settings import EmailSettingsRead, EmailSettingsUpdate, EmailTestRequest, EmailTestResponse, PermissionRead, RoleListResponse, RoleRead, RoleUpdate
@@ -20,14 +20,22 @@ router = APIRouter(prefix="/api/admin/settings", tags=["admin-settings"])
 def serialize_email_settings(settings: EmailSettings | None) -> EmailSettingsRead:
     if not settings:
         return EmailSettingsRead()
+    is_hostinger = settings.provider == EmailProviderType.HOSTINGER
     return EmailSettingsRead(
         provider=settings.provider,
         email_address=settings.email_address,
+        smtp_username=settings.smtp_username,
+        from_email=settings.from_email,
         from_name=settings.from_name,
         reply_to=settings.reply_to,
         enabled=settings.enabled,
         status=settings.status,
-        has_app_password=bool(settings.encrypted_app_password),
+        has_app_password=bool(settings.encrypted_app_password) if settings.provider == EmailProviderType.GMAIL else False,
+        has_smtp_password=bool(settings.encrypted_smtp_password) if is_hostinger else False,
+        smtp_host="smtp.hostinger.com" if is_hostinger else "smtp.gmail.com",
+        smtp_port=settings.smtp_port if is_hostinger else 587,
+        smtp_security=settings.smtp_security if is_hostinger else "STARTTLS",
+        encryption=settings.smtp_security if is_hostinger else "STARTTLS",
         last_test_at=settings.last_test_at,
         last_test_result=settings.last_test_result,
         last_error=settings.last_error,
@@ -120,27 +128,63 @@ def update_email_settings(
     db: Session = Depends(get_db),
 ) -> EmailSettingsRead:
     settings = get_or_create_email_settings(db)
-    replacing_secret = payload.app_password is not None and payload.app_password.strip() != ""
-    if not settings.encrypted_app_password and not replacing_secret:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Gmail App Password is required for initial configuration.")
+    previous_provider = settings.provider
+    replacing_gmail_secret = payload.app_password is not None and payload.app_password.strip() != ""
+    replacing_hostinger_secret = payload.smtp_password is not None and payload.smtp_password.strip() != ""
+    if payload.provider == EmailProviderType.GMAIL:
+        if not payload.email_address:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Gmail Email Address is required.")
+        if not settings.encrypted_app_password and not replacing_gmail_secret:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Gmail App Password is required for initial configuration.")
+        settings.email_address = payload.email_address.lower()
+        settings.smtp_username = None
+        settings.from_email = None
+        settings.smtp_port = 587
+        settings.smtp_security = "STARTTLS"
+        if replacing_gmail_secret:
+            settings.encrypted_app_password = encrypt_secret(payload.app_password.strip())
+    elif payload.provider == EmailProviderType.HOSTINGER:
+        if not payload.smtp_username or not payload.from_email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP Username and From Email are required for Hostinger Email.")
+        if not settings.encrypted_smtp_password and not replacing_hostinger_secret:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hostinger SMTP Password is required for initial configuration.")
+        settings.smtp_username = payload.smtp_username.lower()
+        settings.from_email = payload.from_email.lower()
+        settings.smtp_port = payload.smtp_port
+        settings.smtp_security = payload.smtp_security
+        settings.email_address = None
+        if replacing_hostinger_secret:
+            settings.encrypted_smtp_password = encrypt_secret(payload.smtp_password.strip())
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email provider is not supported.")
     settings.provider = payload.provider
-    settings.email_address = payload.email_address.lower()
     settings.from_name = payload.from_name.strip()
     settings.reply_to = payload.reply_to.lower() if payload.reply_to else None
     settings.enabled = payload.enabled
     settings.status = EmailStatus.CONFIGURED if payload.enabled else EmailStatus.CONFIGURED
     settings.last_error = None
     settings.updated_by = admin_user.id
-    if replacing_secret:
-        settings.encrypted_app_password = encrypt_secret(payload.app_password.strip())
+    if previous_provider != payload.provider:
+        settings.last_test_at = None
+        settings.last_test_result = None
+        write_audit(
+            db,
+            event_type="EMAIL_PROVIDER_CHANGED",
+            result="SUCCESS",
+            user_id=admin_user.id,
+            ip_address=request.client.host if request.client else None,
+            target_type="EMAIL_SETTINGS",
+            metadata={"from": previous_provider.value if previous_provider else None, "to": payload.provider.value},
+        )
+    audit_event = "HOSTINGER_EMAIL_CONFIGURATION_UPDATED" if payload.provider == EmailProviderType.HOSTINGER else "EMAIL_CONFIGURATION_UPDATED"
     write_audit(
         db,
-        event_type="EMAIL_CONFIGURATION_UPDATED",
+        event_type=audit_event,
         result="SUCCESS",
         user_id=admin_user.id,
         ip_address=request.client.host if request.client else None,
         target_type="EMAIL_SETTINGS",
-        metadata={"provider": payload.provider.value, "enabled": payload.enabled, "secret_replaced": replacing_secret},
+        metadata={"provider": payload.provider.value, "enabled": payload.enabled, "secret_replaced": replacing_gmail_secret or replacing_hostinger_secret},
     )
     write_audit(
         db,
