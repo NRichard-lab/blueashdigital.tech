@@ -23,7 +23,7 @@ export type PortalApplication = {
   status: "ONLINE" | "OFFLINE" | "UNKNOWN" | "MAINTENANCE";
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://api.blueashdigital.tech";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -57,4 +57,3 @@ export const api = {
   me: () => request<CurrentUser>("/api/profile/me"),
   apps: () => request<PortalApplication[]>("/api/apps"),
 };
-
