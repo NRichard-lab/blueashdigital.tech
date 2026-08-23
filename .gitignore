@@ -7,6 +7,7 @@ node_modules/
 dist/
 build/
 *.pyc
+*.egg-info/
 *.db
 .DS_Store
 coverage/
@@ -16,4 +17,3 @@ backend/.env
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
-
