@@ -187,6 +187,25 @@ input:focus {
   margin-bottom: 14px;
 }
 
+.info-banner {
+  border: 1px solid rgba(104, 216, 239, 0.24);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #c8edf6;
+  background: rgba(65, 145, 180, 0.12);
+}
+
+.public-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.quiet-button.inline {
+  width: auto;
+  margin-top: 0;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;

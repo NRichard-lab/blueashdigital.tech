@@ -6,10 +6,12 @@ from app.api.dependencies import require_permission
 from app.core.secrets import encrypt_secret
 from app.core.security import utcnow
 from app.database.session import get_db
+from app.models.authentication import AuthenticationSettings
 from app.models.email_settings import EmailProviderType, EmailSettings, EmailStatus
 from app.models.role import PortalPermission, PortalRole, RolePermission
 from app.models.user import User
-from app.schemas.settings import EmailSettingsRead, EmailSettingsUpdate, EmailTestRequest, EmailTestResponse, PermissionRead, RoleListResponse, RoleRead, RoleUpdate
+from app.schemas.settings import AuthenticationSettingsRead, AuthenticationSettingsUpdate, EmailSettingsRead, EmailSettingsUpdate, EmailTestRequest, EmailTestResponse, PermissionRead, RoleListResponse, RoleRead, RoleUpdate
+from app.services.authentication_settings_service import get_or_create_authentication_settings
 from app.services.audit_service import write_audit
 from app.services.email import EmailDeliveryError, test_configured_email
 from app.services.permission_service import CRITICAL_ADMIN_PERMISSIONS, PERMISSIONS, replace_role_permissions
@@ -39,6 +41,16 @@ def serialize_email_settings(settings: EmailSettings | None) -> EmailSettingsRea
         last_test_at=settings.last_test_at,
         last_test_result=settings.last_test_result,
         last_error=settings.last_error,
+    )
+
+
+def serialize_authentication_settings(settings: AuthenticationSettings) -> AuthenticationSettingsRead:
+    return AuthenticationSettingsRead(
+        idle_timeout_minutes=settings.idle_timeout_minutes,
+        absolute_timeout_minutes=settings.absolute_timeout_minutes,
+        mfa_code_expiration_minutes=settings.mfa_code_expiration_minutes,
+        mfa_max_attempts=settings.mfa_max_attempts,
+        mfa_resend_delay_seconds=settings.mfa_resend_delay_seconds,
     )
 
 
@@ -118,6 +130,39 @@ def update_role_permissions(
 def get_email_settings(_: User = Depends(require_permission("email_settings.view")), db: Session = Depends(get_db)) -> EmailSettingsRead:
     settings = db.scalar(select(EmailSettings).order_by(EmailSettings.created_at.asc()).limit(1))
     return serialize_email_settings(settings)
+
+
+@router.get("/authentication", response_model=AuthenticationSettingsRead)
+def get_authentication_settings(_: User = Depends(require_permission("settings.view")), db: Session = Depends(get_db)) -> AuthenticationSettingsRead:
+    return serialize_authentication_settings(get_or_create_authentication_settings(db))
+
+
+@router.put("/authentication", response_model=AuthenticationSettingsRead)
+def update_authentication_settings(
+    payload: AuthenticationSettingsUpdate,
+    request: Request,
+    admin_user: User = Depends(require_permission("settings.edit")),
+    db: Session = Depends(get_db),
+) -> AuthenticationSettingsRead:
+    auth_settings = get_or_create_authentication_settings(db)
+    auth_settings.idle_timeout_minutes = payload.idle_timeout_minutes
+    auth_settings.absolute_timeout_minutes = payload.absolute_timeout_minutes
+    auth_settings.mfa_code_expiration_minutes = payload.mfa_code_expiration_minutes
+    auth_settings.mfa_max_attempts = payload.mfa_max_attempts
+    auth_settings.mfa_resend_delay_seconds = payload.mfa_resend_delay_seconds
+    auth_settings.updated_by = admin_user.id
+    write_audit(
+        db,
+        event_type="AUTHENTICATION_SETTINGS_UPDATED",
+        result="SUCCESS",
+        user_id=admin_user.id,
+        ip_address=request.client.host if request.client else None,
+        target_type="AUTHENTICATION_SETTINGS",
+        metadata=payload.model_dump(),
+    )
+    db.commit()
+    db.refresh(auth_settings)
+    return serialize_authentication_settings(auth_settings)
 
 
 @router.put("/email", response_model=EmailSettingsRead)

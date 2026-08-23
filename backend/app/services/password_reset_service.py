@@ -1,10 +1,11 @@
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import expires_in, generate_token, hash_password, hash_token, utcnow
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
+from app.services.auth_service import revoke_user_auth_state
 from app.services.audit_service import write_audit
 from app.services.email import EmailDeliveryError, send_configured_email
 from app.services.email.templates import password_reset_email
@@ -21,6 +22,7 @@ def request_password_reset(db: Session, *, identifier: str, ip_address: str | No
         return
 
     token = generate_token()
+    db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None)).values(used_at=utcnow()))
     reset = PasswordResetToken(user_id=user.id, token_hash=hash_token(token), expires_at=expires_in(RESET_TOKEN_TTL_SECONDS))
     db.add(reset)
     reset_url = f"{settings.frontend_origin.rstrip('/')}/reset-password?token={token}"
@@ -43,6 +45,7 @@ def complete_password_reset(db: Session, *, token: str, password: str, ip_addres
     user.password_hash = hash_password(password)
     user.force_password_change = False
     reset.used_at = utcnow()
+    revoke_user_auth_state(db, user.id, include_password_resets=False)
     write_audit(db, event_type="PASSWORD_RESET_COMPLETED", result="SUCCESS", user_id=user.id, ip_address=ip_address)
     db.commit()
     return True

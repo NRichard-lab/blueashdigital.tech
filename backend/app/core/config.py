@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     session_secret: str = Field(default="dev-only-session-secret")
     email_encryption_key: str | None = None
     session_cookie_name: str = "blueash_session"
+    pre_auth_cookie_name: str = "blueash_pre_auth"
     session_max_age_seconds: int = 60 * 60 * 8
     smtp_host: str | None = None
     smtp_port: int = 587

@@ -17,7 +17,7 @@ def current_user(
 ) -> User:
     user = get_user_for_session(db, cookie_token)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your session has expired. Please sign in again.")
     request.state.user = user
     return user
 

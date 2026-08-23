@@ -1,4 +1,5 @@
 from app.models.application import Application, ApplicationStatus, ApplicationType, UserApplication
+from app.models.authentication import AuthenticationSettings, PreAuthSession
 from app.models.audit import AuditLog
 from app.models.email_settings import EmailMfaChallenge, EmailProviderType, EmailSettings, EmailStatus
 from app.models.mfa import MfaMethod, MfaMethodType
@@ -11,6 +12,7 @@ __all__ = [
     "Application",
     "ApplicationStatus",
     "ApplicationType",
+    "AuthenticationSettings",
     "AuditLog",
     "EmailMfaChallenge",
     "EmailProviderType",
@@ -22,6 +24,7 @@ __all__ = [
     "PortalPermission",
     "PortalRole",
     "PortalSession",
+    "PreAuthSession",
     "Role",
     "RolePermission",
     "User",

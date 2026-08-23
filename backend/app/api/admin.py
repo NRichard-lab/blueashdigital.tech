@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_permission
-from app.core.security import hash_password, utcnow
+from app.core.security import hash_password
 from app.database.session import get_db
 from app.models.application import Application, UserApplication
 from app.models.audit import AuditLog
@@ -15,7 +15,9 @@ from app.models.session import PortalSession
 from app.models.user import Role, User
 from app.schemas.application import ApplicationRead
 from app.schemas.user import PasswordResetRequest, UserCreate, UserListResponse, UserRead, UserUpdate
+from app.services.auth_service import revoke_user_auth_state
 from app.services.audit_service import write_audit
+from app.services.mfa_email_service import invalidate_user_mfa_state
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -27,6 +29,7 @@ def serialize_user(db: Session, user: User) -> UserRead:
     payload.application_ids = list(application_ids)
     payload.applications_assigned = len(application_ids)
     payload.mfa_enabled = bool(mfa_enabled)
+    payload.mfa_required = user.role == Role.ADMINISTRATOR or user.mfa_required
     return payload
 
 
@@ -56,11 +59,7 @@ def replace_assignments(db: Session, user: User, application_ids: list[uuid.UUID
 
 
 def revoke_user_sessions(db: Session, user_id: uuid.UUID) -> None:
-    db.execute(
-        PortalSession.__table__.update()
-        .where(PortalSession.user_id == user_id, PortalSession.revoked_at.is_(None))
-        .values(revoked_at=utcnow())
-    )
+    revoke_user_auth_state(db, user_id)
 
 
 @router.get("/users", response_model=UserListResponse)
@@ -113,7 +112,7 @@ def create_user(payload: UserCreate, request: Request, admin_user: User = Depend
         password_hash=hash_password(payload.temporary_password),
         role=payload.role,
         enabled=payload.enabled,
-        mfa_required=payload.mfa_required,
+        mfa_required=True if payload.role == Role.ADMINISTRATOR else payload.mfa_required,
     )
     db.add(user)
     db.flush()
@@ -141,7 +140,7 @@ def update_user(user_id: uuid.UUID, payload: UserUpdate, request: Request, admin
     user.display_name = payload.display_name
     user.role = payload.role
     user.enabled = payload.enabled
-    user.mfa_required = payload.mfa_required
+    user.mfa_required = True if payload.role == Role.ADMINISTRATOR else payload.mfa_required
     replace_assignments(db, user, payload.application_ids)
     if previous_enabled and not user.enabled:
         revoke_user_sessions(db, user.id)
@@ -169,6 +168,7 @@ def delete_user(user_id: uuid.UUID, request: Request, admin_user: User = Depends
     db.execute(delete(PortalSession).where(PortalSession.user_id == user.id))
     db.execute(delete(MfaMethod).where(MfaMethod.user_id == user.id))
     db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id))
+    invalidate_user_mfa_state(db, user.id)
     write_audit(db, event_type="USER_DELETED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id), metadata={"username": user.username})
     db.delete(user)
     db.commit()

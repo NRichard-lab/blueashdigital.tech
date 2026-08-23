@@ -115,6 +115,25 @@ export type EmailSettingsPayload = {
   enabled: boolean;
 };
 
+export type AuthenticationSettings = {
+  idle_timeout_minutes: number;
+  absolute_timeout_minutes: number;
+  mfa_code_expiration_minutes: number;
+  mfa_max_attempts: number;
+  mfa_resend_delay_seconds: number;
+};
+
+export type MfaRequired = {
+  status: "MFA_REQUIRED";
+  masked_email: string;
+  expires_at: string;
+  resend_available_at: string | null;
+};
+
+export type LoginResponse =
+  | { status: "AUTHENTICATED"; user: CurrentUser; masked_email?: null; expires_at?: null; resend_available_at?: null }
+  | MfaRequired;
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://api.blueashdigital.tech";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -171,6 +190,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: "Request failed." }));
+    if (response.status === 401 && !path.startsWith("/api/auth/")) {
+      window.dispatchEvent(new CustomEvent("blueash-session-expired", { detail: formatApiError(payload, "Your session has expired. Please sign in again.") }));
+    }
     throw new Error(formatApiError(payload));
   }
 
@@ -183,10 +205,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   login: (identifier: string, password: string) =>
-    request<CurrentUser>("/api/auth/login", {
+    request<LoginResponse>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ identifier, password }),
     }),
+  verifyMfa: (code: string) =>
+    request<CurrentUser>("/api/auth/mfa/verify", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  resendMfa: () => request<MfaRequired>("/api/auth/mfa/resend", { method: "POST" }),
+  cancelMfa: () => request<void>("/api/auth/mfa/cancel", { method: "POST" }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   me: () => request<CurrentUser>("/api/profile/me"),
   apps: () => request<PortalApplication[]>("/api/apps"),
@@ -227,6 +256,12 @@ export const api = {
     request<{ status: EmailSettings["status"]; message: string }>("/api/admin/settings/email/test", {
       method: "POST",
       body: JSON.stringify({ recipient }),
+    }),
+  authenticationSettings: () => request<AuthenticationSettings>("/api/admin/settings/authentication"),
+  updateAuthenticationSettings: (payload: AuthenticationSettings) =>
+    request<AuthenticationSettings>("/api/admin/settings/authentication", {
+      method: "PUT",
+      body: JSON.stringify(payload),
     }),
   requestPasswordReset: (identifier: string) =>
     request<{ message: string }>("/api/auth/password-reset/request", {

@@ -1,14 +1,23 @@
-from sqlalchemy import or_, select
+from datetime import timedelta
+
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.security import expires_in, generate_token, hash_token, utcnow, verify_password
+from app.core.security import generate_token, hash_token, utcnow, verify_password
+from app.models.authentication import PreAuthSession
+from app.models.email_settings import EmailMfaChallenge
+from app.models.password_reset import PasswordResetToken
 from app.models.session import PortalSession
-from app.models.user import User
+from app.models.user import Role, User
+from app.services.authentication_settings_service import get_or_create_authentication_settings
 from app.services.audit_service import write_audit
 
 
-def authenticate(db: Session, *, identifier: str, password: str, ip_address: str | None, user_agent: str | None) -> tuple[User, str] | None:
+def mfa_required_for_user(user: User) -> bool:
+    return user.role == Role.ADMINISTRATOR or user.mfa_required
+
+
+def authenticate_password(db: Session, *, identifier: str, password: str, ip_address: str | None) -> User | None:
     normalized = identifier.strip().lower()
     user = db.scalar(select(User).where(or_(User.username == normalized, User.email == normalized)))
 
@@ -16,21 +25,42 @@ def authenticate(db: Session, *, identifier: str, password: str, ip_address: str
         write_audit(db, event_type="LOGIN_FAILED", result="FAILURE", ip_address=ip_address, metadata={"identifier": normalized[:120]})
         db.commit()
         return None
+    return user
 
+
+def create_pre_auth_session(db: Session, *, user: User, ip_address: str | None, user_agent: str | None) -> tuple[PreAuthSession, str]:
+    auth_settings = get_or_create_authentication_settings(db)
     token = generate_token()
+    pre_auth = PreAuthSession(
+        user_id=user.id,
+        token_hash=hash_token(token),
+        ip_address=ip_address,
+        user_agent=user_agent[:512] if user_agent else None,
+        expires_at=utcnow() + timedelta(minutes=auth_settings.mfa_code_expiration_minutes),
+    )
+    db.add(pre_auth)
+    db.flush()
+    return pre_auth, token
+
+
+def create_session_for_user(db: Session, *, user: User, ip_address: str | None, user_agent: str | None) -> tuple[User, str, int]:
+    auth_settings = get_or_create_authentication_settings(db)
+    token = generate_token()
+    now = utcnow()
+    idle_seconds = auth_settings.idle_timeout_minutes * 60
     session = PortalSession(
         user_id=user.id,
         session_hash=hash_token(token),
         ip_address=ip_address,
         user_agent=user_agent[:512] if user_agent else None,
-        expires_at=expires_in(settings.session_max_age_seconds),
+        last_activity_at=now,
+        expires_at=now + timedelta(seconds=idle_seconds),
+        absolute_expires_at=now + timedelta(minutes=auth_settings.absolute_timeout_minutes),
     )
-    user.last_login_at = utcnow()
+    user.last_login_at = now
     db.add(session)
     write_audit(db, event_type="LOGIN_SUCCESSFUL", result="SUCCESS", user_id=user.id, ip_address=ip_address)
-    db.commit()
-    db.refresh(user)
-    return user, token
+    return user, token, idle_seconds
 
 
 def get_user_for_session(db: Session, token: str | None) -> User | None:
@@ -38,12 +68,31 @@ def get_user_for_session(db: Session, token: str | None) -> User | None:
         return None
 
     session = db.scalar(select(PortalSession).where(PortalSession.session_hash == hash_token(token)))
-    if not session or session.revoked_at or session.expires_at <= utcnow():
+    if not session or session.revoked_at:
+        return None
+    auth_settings = get_or_create_authentication_settings(db)
+    now = utcnow()
+    idle_expired = session.last_activity_at + timedelta(minutes=auth_settings.idle_timeout_minutes) <= now
+    absolute_expired = session.absolute_expires_at <= now
+    if idle_expired or absolute_expired or session.expires_at <= now:
+        session.revoked_at = now
+        write_audit(
+            db,
+            event_type="SESSION_EXPIRED",
+            result="SUCCESS",
+            user_id=session.user_id,
+            ip_address=session.ip_address,
+            metadata={"reason": "absolute" if absolute_expired else "idle"},
+        )
+        db.commit()
         return None
 
     user = db.get(User, session.user_id)
     if not user or not user.enabled:
         return None
+    session.last_activity_at = now
+    session.expires_at = now + timedelta(minutes=auth_settings.idle_timeout_minutes)
+    db.commit()
     return user
 
 
@@ -56,4 +105,29 @@ def revoke_session(db: Session, token: str | None, *, ip_address: str | None) ->
     session.revoked_at = utcnow()
     write_audit(db, event_type="LOGOUT", result="SUCCESS", user_id=session.user_id, ip_address=ip_address)
     db.commit()
+
+
+def revoke_user_auth_state(db: Session, user_id, *, include_password_resets: bool = True) -> None:
+    now = utcnow()
+    db.execute(
+        update(PortalSession)
+        .where(PortalSession.user_id == user_id, PortalSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    db.execute(
+        update(PreAuthSession)
+        .where(PreAuthSession.user_id == user_id, PreAuthSession.completed_at.is_(None), PreAuthSession.cancelled_at.is_(None))
+        .values(cancelled_at=now)
+    )
+    db.execute(
+        update(EmailMfaChallenge)
+        .where(EmailMfaChallenge.user_id == user_id, EmailMfaChallenge.used_at.is_(None), EmailMfaChallenge.invalidated_at.is_(None))
+        .values(invalidated_at=now)
+    )
+    if include_password_resets:
+        db.execute(
+            update(PasswordResetToken)
+            .where(PasswordResetToken.user_id == user_id, PasswordResetToken.used_at.is_(None))
+            .values(used_at=now)
+        )
 

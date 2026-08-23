@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
-import { api, CurrentUser, EmailSettings, EmailSettingsPayload, formatApiError, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
+import { api, AuthenticationSettings, CurrentUser, EmailSettings, EmailSettingsPayload, formatApiError, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
 
 type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "admin-settings" | "profile";
 type PublicMode = "login" | "forgot-password" | "reset-password";
@@ -35,6 +35,8 @@ export function App() {
   const [view, setView] = useState<View>("dashboard");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaPrompt, setMfaPrompt] = useState<{ masked_email: string; expires_at: string; resend_available_at: string | null } | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [error, setError] = useState("");
@@ -43,6 +45,18 @@ export function App() {
 
   useEffect(() => {
     api.me().then(setUser).catch(() => setUser(null)).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    function expire(event: Event) {
+      const detail = (event as CustomEvent<string>).detail;
+      setUser(null);
+      setApps([]);
+      setMfaPrompt(null);
+      setError(detail || "Your session has expired. Please sign in again.");
+    }
+    window.addEventListener("blueash-session-expired", expire);
+    return () => window.removeEventListener("blueash-session-expired", expire);
   }, []);
 
   useEffect(() => {
@@ -65,12 +79,51 @@ export function App() {
     setError("");
     try {
       const currentUser = await api.login(identifier, password);
-      setUser(currentUser);
+      if (currentUser.status === "MFA_REQUIRED") {
+        setMfaPrompt({ masked_email: currentUser.masked_email, expires_at: currentUser.expires_at, resend_available_at: currentUser.resend_available_at });
+        setMfaCode("");
+        return;
+      }
+      setUser(currentUser.user);
       setPassword("");
+      setMfaPrompt(null);
       setView("dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid username/email or password.");
     }
+  }
+
+  async function handleMfaVerify(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const currentUser = await api.verifyMfa(mfaCode);
+      setUser(currentUser);
+      setPassword("");
+      setMfaCode("");
+      setMfaPrompt(null);
+      setView("dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid or expired verification code.");
+    }
+  }
+
+  async function handleMfaResend() {
+    setError("");
+    try {
+      const result = await api.resendMfa();
+      setMfaPrompt({ masked_email: result.masked_email, expires_at: result.expires_at, resend_available_at: result.resend_available_at });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to send a new verification code.");
+    }
+  }
+
+  async function handleMfaCancel() {
+    await api.cancelMfa().catch(() => undefined);
+    setMfaPrompt(null);
+    setMfaCode("");
+    setPassword("");
+    setError("");
   }
 
   async function handleLogout() {
@@ -102,13 +155,19 @@ export function App() {
           <div className="brand-mark"><span>BA</span></div>
           <h1>Blue Ash Digital</h1>
           <p>Custom Applications Portal</p>
-          <form onSubmit={handleLogin}>
+          {mfaPrompt ? <form onSubmit={handleMfaVerify}>
+            <label>Verification Code<input value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" required /></label>
+            <div className="info-banner">Code sent to {mfaPrompt.masked_email}. It expires at {formatDate(mfaPrompt.expires_at)}.</div>
+            {error ? <div className="form-error">{error}</div> : null}
+            <button className="primary-action" type="submit"><ShieldCheck size={18} />Verify</button>
+            <div className="public-actions"><button className="quiet-button inline" type="button" onClick={handleMfaResend}>Resend Code</button><button className="quiet-button inline" type="button" onClick={handleMfaCancel}>Cancel</button></div>
+          </form> : <form onSubmit={handleLogin}>
             <label>Username or Email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required /></label>
             <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" required /></label>
             {error ? <div className="form-error">{error}</div> : null}
             <button className="primary-action" type="submit"><LockKeyhole size={18} />Sign In</button>
-          </form>
-          <button className="quiet-button" type="button" onClick={() => setPublicMode("forgot-password")}>Forgot Password?</button>
+          </form>}
+          {!mfaPrompt ? <button className="quiet-button" type="button" onClick={() => setPublicMode("forgot-password")}>Forgot Password?</button> : null}
         </section>
       </main>
     );
@@ -280,6 +339,7 @@ function UsersAdmin({ currentUser }: { currentUser: CurrentUser }) {
     setError("");
     if (!draft.id && draft.temporary_password !== draft.confirm_password) return setError("Temporary passwords do not match.");
     if (!draft.id && draft.temporary_password.length < 12) return setError("Temporary password must be at least 12 characters.");
+    const effectiveMfaRequired = draft.role === "ADMINISTRATOR" || draft.mfa_required;
     const payload: UserPayload = {
       username: draft.username,
       email: draft.email,
@@ -287,7 +347,7 @@ function UsersAdmin({ currentUser }: { currentUser: CurrentUser }) {
       role: draft.role,
       temporary_password: draft.temporary_password,
       enabled: draft.enabled,
-      mfa_required: draft.mfa_required,
+      mfa_required: effectiveMfaRequired,
       application_ids: draft.role === "ADMINISTRATOR" ? [] : draft.application_ids,
     };
     try {
@@ -362,7 +422,7 @@ function UsersAdmin({ currentUser }: { currentUser: CurrentUser }) {
               <tr key={item.id}>
                 <td>{item.username}</td><td>{item.display_name}</td><td>{item.email}</td><td>{item.role === "ADMINISTRATOR" ? "Admin" : "User"}</td>
                 <td><span className={`pill ${item.enabled ? "good" : "bad"}`}>{item.enabled ? "Enabled" : "Disabled"}</span></td>
-                <td>{item.mfa_enabled ? "Configured" : item.mfa_required ? "Required" : "Off"}</td><td>{formatDate(item.last_login_at)}</td><td>{item.role === "ADMINISTRATOR" ? "All" : item.applications_assigned}</td>
+                <td>{item.mfa_required ? "Email required" : "Not required"}</td><td>{formatDate(item.last_login_at)}</td><td>{item.role === "ADMINISTRATOR" ? "All" : item.applications_assigned}</td>
                 <td><div className="action-row"><button title="Edit" onClick={() => beginEdit(item)}><Pencil size={16} /></button><button title="Reset password" onClick={() => resetPassword(item)}><KeyRound size={16} /></button><button title="Reset MFA" onClick={() => resetMfa(item)}><ShieldCheck size={16} /></button><button title="Delete" disabled={item.id === currentUser.id} onClick={() => deleteUser(item)}><Trash2 size={16} /></button></div></td>
               </tr>
             ))}
@@ -378,6 +438,7 @@ function UsersAdmin({ currentUser }: { currentUser: CurrentUser }) {
 function UserModal({ draft, setDraft, applications, onCancel, onSave }: { draft: UserDraft; setDraft: (draft: UserDraft) => void; applications: PortalApplication[]; onCancel: () => void; onSave: () => void }) {
   const isEdit = Boolean(draft.id);
   const selected = new Set(draft.application_ids);
+  const adminMfa = draft.role === "ADMINISTRATOR";
   function toggleApp(id: string) {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
@@ -392,10 +453,14 @@ function UserModal({ draft, setDraft, applications, onCancel, onSave }: { draft:
           <label>Username<input value={draft.username} disabled={isEdit} onChange={(event) => setDraft({ ...draft, username: event.target.value })} required /></label>
           <label>Display Name<input value={draft.display_name} onChange={(event) => setDraft({ ...draft, display_name: event.target.value })} required /></label>
           <label>Email<input value={draft.email} type="email" onChange={(event) => setDraft({ ...draft, email: event.target.value })} required /></label>
-          <label>Role<select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value as Role })}><option value="USER">User</option><option value="ADMINISTRATOR">Admin</option></select></label>
+          <label>Role<select value={draft.role} onChange={(event) => {
+            const role = event.target.value as Role;
+            setDraft({ ...draft, role, mfa_required: role === "ADMINISTRATOR" ? true : draft.mfa_required });
+          }}><option value="USER">User</option><option value="ADMINISTRATOR">Admin</option></select></label>
           {!isEdit ? <><label>Temporary Password<input value={draft.temporary_password} type="password" onChange={(event) => setDraft({ ...draft, temporary_password: event.target.value })} required /></label><label>Confirm Temporary Password<input value={draft.confirm_password} type="password" onChange={(event) => setDraft({ ...draft, confirm_password: event.target.value })} required /></label></> : null}
         </div>
-        <div className="toggle-row"><label><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enabled</label><label><input type="checkbox" checked={draft.mfa_required} onChange={(event) => setDraft({ ...draft, mfa_required: event.target.checked })} /> Require MFA</label></div>
+        <div className="toggle-row"><label><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enabled</label><label><input type="checkbox" checked={adminMfa || draft.mfa_required} disabled={adminMfa} onChange={(event) => setDraft({ ...draft, mfa_required: event.target.checked })} /> Require Email MFA</label></div>
+        {adminMfa ? <div className="info-banner">Email MFA is always required for administrator accounts.</div> : null}
         <section className="assignment-panel">
           <h4>Application Access</h4>
           {draft.role === "ADMINISTRATOR" ? <p>Administrators automatically have access to all applications.</p> : <div className="assignment-grid">{applications.map((app) => <label key={app.id}><input type="checkbox" checked={selected.has(app.id)} onChange={() => toggleApp(app.id)} /><span>{app.name}</span></label>)}</div>}
@@ -422,8 +487,67 @@ function SettingsAdmin({ user }: { user: CurrentUser }) {
       {tab === "roles" && can(user, "roles.view") ? <RolesSettings canEdit={can(user, "roles.edit")} /> : null}
       {tab === "email" && can(user, "email_settings.view") ? <EmailSettingsPanel canEdit={can(user, "email_settings.edit")} canTest={can(user, "email_settings.test")} currentUser={user} /> : null}
       {tab === "general" ? <div className="admin-surface"><span className="eyebrow">General</span><h3>Portal</h3><p>Portal name and domain are managed through deployment environment configuration.</p></div> : null}
-      {tab === "auth" ? <div className="admin-surface"><span className="eyebrow">Authentication</span><h3>Session Policy</h3><p>Sessions, secure cookies, MFA requirements, and password resets use the configured backend authentication settings.</p></div> : null}
+      {tab === "auth" ? <AuthenticationSettingsPanel canEdit={can(user, "settings.edit")} /> : null}
     </>
+  );
+}
+
+function AuthenticationSettingsPanel({ canEdit }: { canEdit: boolean }) {
+  const [draft, setDraft] = useState<AuthenticationSettings | null>(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    try {
+      const result = await api.authenticationSettings();
+      setDraft(result);
+      setError("");
+    } catch (err) {
+      setError(formatApiError(err, "Unable to load authentication settings."));
+    }
+  }
+
+  function update<K extends keyof AuthenticationSettings>(key: K, value: number) {
+    if (!draft) return;
+    setDraft({ ...draft, [key]: value });
+  }
+
+  async function save() {
+    if (!draft) return;
+    try {
+      const result = await api.updateAuthenticationSettings(draft);
+      setDraft(result);
+      setMessage("Authentication settings saved.");
+      setError("");
+    } catch (err) {
+      setError(formatApiError(err, "Unable to save authentication settings."));
+    }
+  }
+
+  if (!draft) return <div className="admin-surface">{error ? <div className="form-error">{error}</div> : "Loading..."}</div>;
+  return (
+    <div className="settings-layout">
+      <section className="admin-surface">
+        <div className="section-title"><span className="eyebrow">Authentication</span><h3>Session Policy</h3></div>
+        {message ? <div className="success-banner">{message}</div> : null}
+        {error ? <div className="form-error">{error}</div> : null}
+        <div className="form-grid">
+          <label>Idle Timeout Minutes<input type="number" min={5} max={480} value={draft.idle_timeout_minutes} disabled={!canEdit} onChange={(event) => update("idle_timeout_minutes", Number(event.target.value))} /></label>
+          <label>Absolute Timeout Minutes<input type="number" min={30} max={1440} value={draft.absolute_timeout_minutes} disabled={!canEdit} onChange={(event) => update("absolute_timeout_minutes", Number(event.target.value))} /></label>
+          <label>MFA Code Expiration Minutes<input type="number" min={2} max={15} value={draft.mfa_code_expiration_minutes} disabled={!canEdit} onChange={(event) => update("mfa_code_expiration_minutes", Number(event.target.value))} /></label>
+          <label>MFA Max Attempts<input type="number" min={3} max={10} value={draft.mfa_max_attempts} disabled={!canEdit} onChange={(event) => update("mfa_max_attempts", Number(event.target.value))} /></label>
+          <label>MFA Resend Delay Seconds<input type="number" min={30} max={300} value={draft.mfa_resend_delay_seconds} disabled={!canEdit} onChange={(event) => update("mfa_resend_delay_seconds", Number(event.target.value))} /></label>
+        </div>
+        <footer className="modal-actions"><button className="primary-action compact" disabled={!canEdit} onClick={save}><CheckCircle2 size={16} /> Save Authentication Settings</button></footer>
+      </section>
+      <section className="admin-surface">
+        <div className="section-title"><span className="eyebrow">Policy</span><h3>Email MFA</h3></div>
+        <p>Administrators always require email MFA. Standard users follow the Require Email MFA setting on their user record.</p>
+        <p>Verification codes are one-time use, expire on schedule, and each resend invalidates the previous code.</p>
+      </section>
+    </div>
   );
 }
 

@@ -74,3 +74,19 @@ class EmailTestRequest(BaseModel):
 class EmailTestResponse(BaseModel):
     status: EmailStatus
     message: str
+
+
+class AuthenticationSettingsRead(BaseModel):
+    idle_timeout_minutes: int
+    absolute_timeout_minutes: int
+    mfa_code_expiration_minutes: int
+    mfa_max_attempts: int
+    mfa_resend_delay_seconds: int
+
+
+class AuthenticationSettingsUpdate(BaseModel):
+    idle_timeout_minutes: int = Field(default=30, ge=5, le=480)
+    absolute_timeout_minutes: int = Field(default=480, ge=30, le=1440)
+    mfa_code_expiration_minutes: int = Field(default=10, ge=2, le=15)
+    mfa_max_attempts: int = Field(default=5, ge=3, le=10)
+    mfa_resend_delay_seconds: int = Field(default=60, ge=30, le=300)
