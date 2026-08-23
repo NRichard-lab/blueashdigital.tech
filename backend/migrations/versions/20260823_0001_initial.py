@@ -6,6 +6,7 @@ Create Date: 2026-08-23
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "20260823_0001"
 down_revision = None
@@ -14,15 +15,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    role_enum = sa.Enum("ADMINISTRATOR", "USER", name="role_enum")
-    app_type_enum = sa.Enum("INTERNAL_WEB", "INTERNAL_SERVICE", "EXTERNAL_URL", "API_APP", name="app_type_enum")
-    app_status_enum = sa.Enum("ONLINE", "OFFLINE", "UNKNOWN", "MAINTENANCE", name="app_status_enum")
-    mfa_type_enum = sa.Enum("TOTP", "EMAIL", "SMS", name="mfa_type_enum")
+    role_enum = postgresql.ENUM("ADMINISTRATOR", "USER", name="role_enum", create_type=False)
+    app_type_enum = postgresql.ENUM("INTERNAL_WEB", "INTERNAL_SERVICE", "EXTERNAL_URL", "API_APP", name="app_type_enum", create_type=False)
+    app_status_enum = postgresql.ENUM("ONLINE", "OFFLINE", "UNKNOWN", "MAINTENANCE", name="app_status_enum", create_type=False)
+    mfa_type_enum = postgresql.ENUM("TOTP", "EMAIL", "SMS", name="mfa_type_enum", create_type=False)
 
-    role_enum.create(op.get_bind(), checkfirst=True)
-    app_type_enum.create(op.get_bind(), checkfirst=True)
-    app_status_enum.create(op.get_bind(), checkfirst=True)
-    mfa_type_enum.create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("ADMINISTRATOR", "USER", name="role_enum").create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("INTERNAL_WEB", "INTERNAL_SERVICE", "EXTERNAL_URL", "API_APP", name="app_type_enum").create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("ONLINE", "OFFLINE", "UNKNOWN", "MAINTENANCE", name="app_status_enum").create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("TOTP", "EMAIL", "SMS", name="mfa_type_enum").create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "users",
@@ -133,4 +134,3 @@ def downgrade() -> None:
     sa.Enum(name="app_status_enum").drop(op.get_bind(), checkfirst=True)
     sa.Enum(name="app_type_enum").drop(op.get_bind(), checkfirst=True)
     sa.Enum(name="role_enum").drop(op.get_bind(), checkfirst=True)
-
