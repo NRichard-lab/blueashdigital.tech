@@ -131,22 +131,20 @@ def resend_mfa(request: Request, db: Session = Depends(get_db)) -> MfaRequiredRe
 
 
 @router.post("/mfa/cancel", status_code=204)
-def cancel_mfa(request: Request, response: Response, db: Session = Depends(get_db)) -> Response:
+def cancel_mfa(request: Request, response: Response, db: Session = Depends(get_db)) -> None:
     pre_auth = get_pre_auth_session(db, request.cookies.get(settings.pre_auth_cookie_name))
     if pre_auth:
         cancel_pre_auth_session(db, pre_auth_session=pre_auth, ip_address=request.client.host if request.client else None)
         db.commit()
     _clear_pre_auth_cookie(response)
-    return response
 
 
 @router.post("/logout", status_code=204)
-def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> Response:
+def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> None:
     token = request.cookies.get(settings.session_cookie_name)
     revoke_session(db, token, ip_address=request.client.host if request.client else None)
     response.delete_cookie(settings.session_cookie_name, domain=settings.cookie_domain or None)
     _clear_pre_auth_cookie(response)
-    return response
 
 
 @router.post("/password-reset/request")
