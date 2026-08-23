@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,3 +21,13 @@ def list_applications(user: User = Depends(current_user), db: Session = Depends(
     apps = db.scalars(statement).all()
     return [ApplicationRead.model_validate(app) for app in apps]
 
+
+@router.get("/{application_id}/launch")
+def launch_application(application_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    statement = select(Application).where(Application.id == application_id, Application.enabled.is_(True))
+    if user.role != Role.ADMINISTRATOR:
+        statement = statement.join(UserApplication).where(UserApplication.user_id == user.id, Application.administrator_only.is_(False))
+    app = db.scalar(statement)
+    if not app:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this application.")
+    return {"launch_url": app.launch_url}

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.user import Role
 
@@ -13,9 +13,13 @@ class UserRead(BaseModel):
     display_name: str
     role: Role
     enabled: bool
+    force_password_change: bool = False
+    mfa_required: bool = False
     mfa_enabled: bool = False
     created_at: datetime | None = None
     last_login_at: datetime | None = None
+    applications_assigned: int = 0
+    application_ids: list[uuid.UUID] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -27,6 +31,52 @@ class CurrentUser(BaseModel):
     display_name: str
     role: Role
     mfa_enabled: bool = False
+    permissions: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
+
+def current_user_payload(user) -> CurrentUser:
+    permissions = ["dashboard", "applications", "profile"]
+    if user.role == Role.ADMINISTRATOR:
+        permissions.extend(["admin.users", "admin.applications", "admin.audit"])
+    payload = CurrentUser.model_validate(user)
+    payload.permissions = permissions
+    return payload
+
+
+class UserListResponse(BaseModel):
+    items: list[UserRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    email: EmailStr
+    display_name: str = Field(min_length=1, max_length=160)
+    role: Role
+    temporary_password: str = Field(min_length=12, max_length=256)
+    enabled: bool = True
+    mfa_required: bool = False
+    application_ids: list[uuid.UUID] = Field(default_factory=list)
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class UserUpdate(BaseModel):
+    email: EmailStr
+    display_name: str = Field(min_length=1, max_length=160)
+    role: Role
+    enabled: bool
+    mfa_required: bool = False
+    application_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class PasswordResetRequest(BaseModel):
+    temporary_password: str = Field(min_length=12, max_length=256)
+    force_password_change: bool = False

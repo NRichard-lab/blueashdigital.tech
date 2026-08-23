@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.database.session import get_db
 from app.schemas.auth import LoginRequest
-from app.schemas.user import CurrentUser
+from app.schemas.user import CurrentUser, current_user_payload
 from app.services.auth_service import authenticate, revoke_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -32,7 +32,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         samesite="lax",
         domain=settings.cookie_domain or None,
     )
-    return CurrentUser.model_validate(user)
+    return current_user_payload(user)
 
 
 @router.post("/logout", status_code=204)
@@ -41,4 +41,3 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
     revoke_session(db, token, ip_address=request.client.host if request.client else None)
     response.delete_cookie(settings.session_cookie_name, domain=settings.cookie_domain or None)
     return response
-
