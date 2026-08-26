@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
+import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Radar, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
 import { api, AuthenticationSettings, CurrentUser, EmailSettings, EmailSettingsPayload, formatApiError, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
+import { normalizeReturnTo } from "./returnTo";
 
 type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "admin-settings" | "profile";
 type PublicMode = "login" | "forgot-password" | "reset-password";
@@ -30,13 +31,15 @@ const blankUser: UserDraft = {
 };
 
 export function App() {
+  const initialReturnTo = useMemo(() => normalizeReturnTo(new URLSearchParams(window.location.search).get("returnTo")), []);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [apps, setApps] = useState<PortalApplication[]>([]);
   const [view, setView] = useState<View>("dashboard");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [mfaCode, setMfaCode] = useState("");
-  const [mfaPrompt, setMfaPrompt] = useState<{ masked_email: string; expires_at: string; resend_available_at: string | null } | null>(null);
+  const [mfaPrompt, setMfaPrompt] = useState<{ masked_email: string; expires_at: string; resend_available_at: string | null; return_to: string | null } | null>(null);
+  const [returnTo, setReturnTo] = useState<string | null>(initialReturnTo);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [error, setError] = useState("");
@@ -44,7 +47,13 @@ export function App() {
   const [publicMode, setPublicMode] = useState<PublicMode>(() => window.location.pathname.includes("reset-password") ? "reset-password" : window.location.pathname.includes("forgot-password") ? "forgot-password" : "login");
 
   useEffect(() => {
-    api.me().then(setUser).catch(() => setUser(null)).finally(() => setLoading(false));
+    api.me().then((currentUser) => {
+      if (initialReturnTo) {
+        window.location.replace(initialReturnTo);
+        return;
+      }
+      setUser(currentUser);
+    }).catch(() => setUser(null)).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -78,16 +87,15 @@ export function App() {
     event.preventDefault();
     setError("");
     try {
-      const currentUser = await api.login(identifier, password);
+      const currentUser = await api.login(identifier, password, returnTo);
       if (currentUser.status === "MFA_REQUIRED") {
-        setMfaPrompt({ masked_email: currentUser.masked_email, expires_at: currentUser.expires_at, resend_available_at: currentUser.resend_available_at });
+        const destination = currentUser.return_to ?? null;
+        setReturnTo(destination);
+        setMfaPrompt({ masked_email: currentUser.masked_email, expires_at: currentUser.expires_at, resend_available_at: currentUser.resend_available_at, return_to: destination });
         setMfaCode("");
         return;
       }
-      setUser(currentUser.user);
-      setPassword("");
-      setMfaPrompt(null);
-      setView("dashboard");
+      completeAuthentication(currentUser.user, currentUser.return_to ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid username/email or password.");
     }
@@ -98,11 +106,7 @@ export function App() {
     setError("");
     try {
       const currentUser = await api.verifyMfa(mfaCode);
-      setUser(currentUser);
-      setPassword("");
-      setMfaCode("");
-      setMfaPrompt(null);
-      setView("dashboard");
+      completeAuthentication(currentUser, mfaPrompt?.return_to ?? returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid or expired verification code.");
     }
@@ -112,7 +116,7 @@ export function App() {
     setError("");
     try {
       const result = await api.resendMfa();
-      setMfaPrompt({ masked_email: result.masked_email, expires_at: result.expires_at, resend_available_at: result.resend_available_at });
+      setMfaPrompt((current) => ({ masked_email: result.masked_email, expires_at: result.expires_at, resend_available_at: result.resend_available_at, return_to: current?.return_to ?? returnTo }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to send a new verification code.");
     }
@@ -132,6 +136,18 @@ export function App() {
     setApps([]);
     setIdentifier("");
     setPassword("");
+  }
+
+  function completeAuthentication(currentUser: CurrentUser, destination: string | null) {
+    setPassword("");
+    setMfaCode("");
+    setMfaPrompt(null);
+    if (destination) {
+      window.location.replace(destination);
+      return;
+    }
+    setUser(currentUser);
+    setView("dashboard");
   }
 
   async function launchApplication(app: PortalApplication) {
@@ -288,7 +304,7 @@ function ApplicationDashboard({ apps, categories, category, query, setCategory, 
       <div className="app-grid">
         {apps.map((app) => (
           <article className="app-card" key={app.id}>
-            <div className="app-icon">{app.icon || "APP"}</div>
+            <div className="app-icon">{app.icon === "RADAR" ? <Radar aria-label="Opportunity Radar" size={26} /> : app.icon || "APP"}</div>
             <div><h3>{app.name}</h3><p>{app.description}</p></div>
             <div className="card-meta"><span>{app.category}</span><span className={`status ${app.status.toLowerCase()}`}>{app.status}</span></div>
             <button className="launch-button" onClick={() => launchApplication(app)}>Launch</button>

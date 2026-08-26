@@ -9,6 +9,7 @@ from app.schemas.user import CurrentUser
 class LoginRequest(BaseModel):
     identifier: str = Field(min_length=1, max_length=320)
     password: str = Field(min_length=1, max_length=256)
+    return_to: str | None = Field(default=None, max_length=2048)
 
 
 class PasswordResetRequestCreate(BaseModel):
@@ -41,4 +42,5 @@ class LoginResponse(BaseModel):
     masked_email: str | None = None
     expires_at: datetime | None = None
     resend_available_at: datetime | None = None
+    return_to: str | None = None
 

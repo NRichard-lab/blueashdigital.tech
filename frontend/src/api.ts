@@ -128,10 +128,11 @@ export type MfaRequired = {
   masked_email: string;
   expires_at: string;
   resend_available_at: string | null;
+  return_to?: string | null;
 };
 
 export type LoginResponse =
-  | { status: "AUTHENTICATED"; user: CurrentUser; masked_email?: null; expires_at?: null; resend_available_at?: null }
+  | { status: "AUTHENTICATED"; user: CurrentUser; masked_email?: null; expires_at?: null; resend_available_at?: null; return_to?: string | null }
   | MfaRequired;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://api.blueashdigital.tech";
@@ -204,10 +205,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  login: (identifier: string, password: string) =>
+  login: (identifier: string, password: string, returnTo: string | null) =>
     request<LoginResponse>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ identifier, password }),
+      body: JSON.stringify({ identifier, password, return_to: returnTo }),
     }),
   verifyMfa: (code: string) =>
     request<CurrentUser>("/api/auth/mfa/verify", {

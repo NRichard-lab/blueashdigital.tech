@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.redirects import normalize_return_to
 from app.core.security import utcnow
 from app.database.session import get_db
 from app.schemas.auth import EmailMfaVerifyRequest, LoginRequest, LoginResponse, MfaRequiredResponse, PasswordResetComplete, PasswordResetRequestCreate
@@ -66,6 +67,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     )
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username/email or password.")
+    return_to = normalize_return_to(payload.return_to)
 
     if mfa_required_for_user(user):
         auth_settings = get_or_create_authentication_settings(db)
@@ -78,13 +80,13 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         db.commit()
         _set_pre_auth_cookie(response, token, auth_settings.mfa_code_expiration_minutes * 60)
         mfa_payload = _mfa_response(pre_auth, user, auth_settings)
-        return LoginResponse(status="MFA_REQUIRED", masked_email=mfa_payload.masked_email, expires_at=mfa_payload.expires_at, resend_available_at=mfa_payload.resend_available_at)
+        return LoginResponse(status="MFA_REQUIRED", masked_email=mfa_payload.masked_email, expires_at=mfa_payload.expires_at, resend_available_at=mfa_payload.resend_available_at, return_to=return_to)
 
     user, token, max_age = create_session_for_user(db, user=user, ip_address=ip_address, user_agent=request.headers.get("user-agent"))
     db.commit()
     db.refresh(user)
     _set_session_cookie(response, token, max_age)
-    return LoginResponse(status="AUTHENTICATED", user=current_user_payload(user, db))
+    return LoginResponse(status="AUTHENTICATED", user=current_user_payload(user, db), return_to=return_to)
 
 
 @router.post("/mfa/verify", response_model=CurrentUser)

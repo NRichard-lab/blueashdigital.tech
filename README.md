@@ -150,6 +150,18 @@ The portal is intentionally separate from future apps:
 
 Register each future app in Admin > Applications, assign users, and launch it from the dashboard.
 
+### Opportunity Radar
+
+Migration `20260825_0005` registers Opportunity Radar in the existing application registry with slug
+`opportunity-radar` and launch URL `https://blueashdigital.tech/OpportunityRadar`. Administrators see
+the enabled application automatically. Standard users see and may launch it only when its existing
+`user_applications` assignment is enabled in User Administration.
+
+Opportunity Radar redirects signed-out users to the portal with a `returnTo` query value. The login
+flow accepts only the canonical `/OpportunityRadar` path and its descendants on `blueashdigital.tech`,
+normalizes the destination to a relative path, preserves it through email MFA, and restores it after
+authentication. Invalid or external destinations are ignored and normal portal navigation is used.
+
 ## Development Notes
 
 - Backend source is under `backend/app`.
