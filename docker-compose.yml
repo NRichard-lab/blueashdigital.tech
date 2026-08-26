@@ -3,65 +3,67 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      - frontend
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
-    command:
-      - sh
-      - -c
-      - |
-        cat >/tmp/Caddyfile <<'EOF'
-        blueashdigital.tech, www.blueashdigital.tech {
-          encode zstd gzip
-          reverse_proxy frontend:80
-        }
-
-        api.blueashdigital.tech {
-          encode zstd gzip
-          reverse_proxy backend:8000
-        }
-        EOF
-        caddy run --config /tmp/Caddyfile --adapter caddyfile
     volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
       - portal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-portal}
-      POSTGRES_USER: ${POSTGRES_USER:-portal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portal-dev-password}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - portal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal} -d ${POSTGRES_DB:-portal}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   backend:
-    image: blueashdigital-tech-backend:${DEPLOYMENT_VERSION:-5bc6b8a508857bdf68ade63a436ad983eeb5674f}
+    image: blueashdigital-tech-backend:${DEPLOYMENT_VERSION:?DEPLOYMENT_VERSION must be a full release commit SHA}
     restart: unless-stopped
     build:
       context: ./backend
       args:
-        SOURCE_VERSION: ${DEPLOYMENT_VERSION:-5bc6b8a508857bdf68ade63a436ad983eeb5674f}
-    env_file:
-      - .env
+        DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION}
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://portal:portal-dev-password@postgres:5432/portal}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      APP_NAME: ${APP_NAME:-Blue Ash Digital Portal}
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://blueashdigital.tech,https://www.blueashdigital.tech}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
-      APP_ENV: ${APP_ENV:-development}
-      EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:-}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:?EMAIL_ENCRYPTION_KEY is required}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-blueash_session}
+      PRE_AUTH_COOKIE_NAME: ${PRE_AUTH_COOKIE_NAME:-blueash_pre_auth}
+      SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-28800}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_DISPLAY_NAME: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD_HASH: ${BOOTSTRAP_ADMIN_PASSWORD_HASH:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,20 +71,34 @@ services:
       - "8000"
     networks:
       - portal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; response = urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3); raise SystemExit(0 if response.status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   frontend:
-    image: blueashdigital-tech-frontend:${DEPLOYMENT_VERSION:-5bc6b8a508857bdf68ade63a436ad983eeb5674f}
+    image: blueashdigital-tech-frontend:${DEPLOYMENT_VERSION:?DEPLOYMENT_VERSION must be a full release commit SHA}
     restart: unless-stopped
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.blueashdigital.tech}
+        DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?VITE_API_BASE_URL is required}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     expose:
       - "80"
     networks:
       - portal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

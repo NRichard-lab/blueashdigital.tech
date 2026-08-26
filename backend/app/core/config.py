@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "Blue Ash Digital Portal"
     app_domain: str = "blueashdigital.tech"
     frontend_origin: str = "http://localhost:5173"
+    cors_origins: str | None = None
     cookie_domain: str | None = None
     database_url: str = "postgresql+psycopg://portal:portal-dev-password@postgres:5432/portal"
     secret_key: str = Field(default="dev-only-secret")
@@ -28,6 +29,17 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        configured = self.cors_origins or self.frontend_origin
+        return list(
+            dict.fromkeys(
+                origin.strip().rstrip("/")
+                for origin in configured.split(",")
+                if origin.strip()
+            )
+        )
 
 
 @lru_cache

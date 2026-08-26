@@ -2,7 +2,7 @@
 
 Production-ready private application portal for `blueashdigital.tech`.
 
-This repo contains a React/Vite frontend, FastAPI backend, PostgreSQL database, Docker Compose deployment files, Alembic migrations, and Traefik labels for a Hostinger VPS running Ubuntu 24.04.
+This repo contains a React/Vite frontend, FastAPI backend, PostgreSQL database, Docker Compose deployment files, Alembic migrations, and Caddy routing for a Hostinger VPS running Ubuntu 24.04.
 
 ## What This Is
 
@@ -20,21 +20,21 @@ Core capabilities included:
 - Audit logging
 - TOTP MFA foundation
 - Email password-reset token flow foundation
-- Docker, PostgreSQL, Alembic, and Traefik support
+- Docker, PostgreSQL, Alembic, and Caddy support
 
 ## Local Development
 
-1. Copy environment files:
+1. Copy the local-only environment template:
 
 ```bash
-cp .env.example .env
+cp .env.local.example .env
 cp frontend/.env.example frontend/.env.local
 ```
 
 2. Start the stack:
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build postgres backend frontend
 ```
 
 3. Run database migrations:
@@ -56,81 +56,75 @@ You will be prompted for a password. Do not use a default password in production
 
 5. Open:
 
-- Frontend: `http://localhost:5173`
+- Frontend: `http://localhost:8080`
 - API health: `http://localhost:8000/api/health`
 - API docs, local only: `http://localhost:8000/docs`
 
-## Production Deployment On Hostinger VPS
+## Production Architecture On Hostinger
 
 Target server:
 
 - Ubuntu 24.04
 - Docker
 - Docker Compose plugin
-- Traefik reverse proxy
-- DNS pointed to the VPS
+- Caddy reverse proxy for the API
+- PostgreSQL on the private Compose network
+- Managed Hostinger frontend for the apex and `www` domains
 
-Recommended DNS:
+Production ownership is intentionally split:
 
 ```text
-blueashdigital.tech      A      <VPS_PUBLIC_IP>
-www.blueashdigital.tech  CNAME  blueashdigital.tech
-api.blueashdigital.tech  A      <VPS_PUBLIC_IP>
+blueashdigital.tech      -> Hostinger managed frontend
+www.blueashdigital.tech  -> Hostinger managed frontend
+api.blueashdigital.tech  -> Hostinger VPS Caddy
 ```
 
-Recommended directory:
+The authoritative VPS configuration is the root `docker-compose.yml`. It uses Caddy and does not require a Traefik network. The obsolete Traefik Compose file has been removed to prevent accidental use.
+
+Recommended VPS directory:
 
 ```text
 /srv/apps/portal
 ```
 
-Deploy:
+Prepare the production environment outside Git using `.env.example` as a variable checklist. Secret values in that template are intentionally blank. `DEPLOYMENT_VERSION` must be the full approved release commit SHA and is used for both backend and frontend image tags and revision labels.
+
+Validate before an authorized deployment:
 
 ```bash
-cd /srv/apps/portal
-cp .env.example .env
-nano .env
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
-docker compose -f docker-compose.prod.yml exec backend python -m app.cli.create_admin \
-  --username admin \
-  --email you@blueashdigital.tech \
-  --display-name "Portal Administrator"
+docker compose --env-file .env -f docker-compose.yml config --quiet
+docker compose --env-file .env -f docker-compose.yml build
 ```
 
-Production `.env` must include strong generated values for `SECRET_KEY`, `SESSION_SECRET`, and `POSTGRES_PASSWORD`.
+Production must provide strong generated values for `SECRET_KEY`, `SESSION_SECRET`, `EMAIL_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD`. `SOURCE_VERSION` is deprecated and ignored.
 
-## Hostinger And Traefik
+## Caddy And CORS
 
-The production compose file expects an external Docker network named `traefik-public`.
+Caddy on the VPS serves only `api.blueashdigital.tech`. It does not request certificates for the apex or `www` domains because those domains terminate at Hostinger's managed frontend.
 
-Create it once if needed:
+The backend allows these production browser origins explicitly:
 
-```bash
-docker network create traefik-public
+```text
+https://blueashdigital.tech
+https://www.blueashdigital.tech
 ```
 
-Traefik routes:
-
-- `https://blueashdigital.tech` -> frontend
-- `https://www.blueashdigital.tech` -> frontend
-- `https://api.blueashdigital.tech` -> backend
-
-The backend sends secure cookies for `.blueashdigital.tech` in production. Keep frontend and API on HTTPS.
+The backend sends secure cookies for `.blueashdigital.tech` in production. Keep both frontend origins and the API on HTTPS.
 
 ## Backups
 
 Back up at minimum:
 
 - PostgreSQL database dump
-- `/srv/apps/portal/docker-compose.prod.yml`
+- `/srv/apps/portal/docker-compose.yml`
+- `/srv/apps/portal/Caddyfile`
 - `/srv/apps/portal/.env`
 - Any uploaded configuration or application-specific compose files
 
 Example database backup:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U portal portal \
+docker compose -f docker-compose.yml exec -T postgres pg_dump -U portal portal \
   > /srv/backups/portal-$(date +%F).sql
 ```
 
@@ -173,9 +167,19 @@ authentication. Invalid or external destinations are ignored and normal portal n
 
 ### Hostinger deployment versioning
 
-The managed Hostinger project uses `DEPLOYMENT_VERSION` as the immutable image tag and backend
-build revision. Its Compose fallback is the currently approved application-source commit. Update
-that fallback (or set `DEPLOYMENT_VERSION` to the new full commit SHA) for every deployment so a
-backend source change cannot silently reuse an older mutable image. `SOURCE_VERSION` is retained
-only as legacy environment metadata and does not control new builds.
+The Hostinger Docker project requires `DEPLOYMENT_VERSION` as the immutable backend and frontend
+image tag and OCI revision label. Set it to the full approved release commit SHA for every
+deployment. There is no fallback tag, so a missing release revision fails Compose validation
+instead of silently reusing an older image. `SOURCE_VERSION` is deprecated and ignored.
+
+### Migration for this release
+
+The only expected database transition is:
+
+```text
+20260823_0004 -> 20260825_0005
+```
+
+Migration `20260825_0005` registers Opportunity Radar. Do not run it until the production database
+has been backed up and the current `alembic_version` has been verified as `20260823_0004`.
 

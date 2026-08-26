@@ -5,8 +5,8 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-ARG SOURCE_VERSION=local
-LABEL org.opencontainers.image.revision=$SOURCE_VERSION
+ARG DEPLOYMENT_VERSION=local
+LABEL org.opencontainers.image.revision=$DEPLOYMENT_VERSION
 
 COPY pyproject.toml ./
 COPY app ./app
