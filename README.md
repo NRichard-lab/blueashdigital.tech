@@ -171,3 +171,11 @@ authentication. Invalid or external destinations are ignored and normal portal n
 - API secrets stay server-side.
 - PostgreSQL is internal-only in production.
 
+### Hostinger deployment versioning
+
+The managed Hostinger project uses `DEPLOYMENT_VERSION` as the immutable image tag and backend
+build revision. Its Compose fallback is the currently approved application-source commit. Update
+that fallback (or set `DEPLOYMENT_VERSION` to the new full commit SHA) for every deployment so a
+backend source change cannot silently reuse an older mutable image. `SOURCE_VERSION` is retained
+only as legacy environment metadata and does not control new builds.
+

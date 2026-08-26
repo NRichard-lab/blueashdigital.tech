@@ -48,11 +48,12 @@ services:
       retries: 5
 
   backend:
+    image: blueashdigital-tech-backend:${DEPLOYMENT_VERSION:-5bc6b8a508857bdf68ade63a436ad983eeb5674f}
     restart: unless-stopped
     build:
       context: ./backend
       args:
-        SOURCE_VERSION: ${SOURCE_VERSION:-user-admin-20260823}
+        SOURCE_VERSION: ${DEPLOYMENT_VERSION:-5bc6b8a508857bdf68ade63a436ad983eeb5674f}
     env_file:
       - .env
     environment:
@@ -70,6 +71,7 @@ services:
       - portal
 
   frontend:
+    image: blueashdigital-tech-frontend:${DEPLOYMENT_VERSION:-5bc6b8a508857bdf68ade63a436ad983eeb5674f}
     restart: unless-stopped
     build:
       context: ./frontend
