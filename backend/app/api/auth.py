@@ -4,10 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.cookies import clear_pre_auth_cookie, clear_session_cookie, set_pre_auth_cookie, set_session_cookie
 from app.core.redirects import normalize_return_to
 from app.core.security import utcnow
 from app.database.session import get_db
-from app.schemas.auth import EmailMfaVerifyRequest, LoginRequest, LoginResponse, MfaRequiredResponse, PasswordResetComplete, PasswordResetRequestCreate
+from app.schemas.auth import EmailMfaVerifyRequest, LoginRequest, LoginResponse, MfaRequiredResponse, MfaVerifyResponse, PasswordResetComplete, PasswordResetRequestCreate
 from app.schemas.user import CurrentUser, current_user_payload
 from app.models.user import User
 from app.services.email import EmailDeliveryError
@@ -20,37 +21,9 @@ from app.services.rate_limit_service import rate_limiter
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def _set_session_cookie(response: Response, token: str, max_age: int) -> None:
-    response.set_cookie(
-        settings.session_cookie_name,
-        token,
-        max_age=max_age,
-        httponly=True,
-        secure=settings.is_production,
-        samesite="lax",
-        domain=settings.cookie_domain or None,
-    )
-
-
-def _set_pre_auth_cookie(response: Response, token: str, max_age: int) -> None:
-    response.set_cookie(
-        settings.pre_auth_cookie_name,
-        token,
-        max_age=max_age,
-        httponly=True,
-        secure=settings.is_production,
-        samesite="lax",
-        domain=settings.cookie_domain or None,
-    )
-
-
-def _clear_pre_auth_cookie(response: Response) -> None:
-    response.delete_cookie(settings.pre_auth_cookie_name, domain=settings.cookie_domain or None)
-
-
 def _mfa_response(pre_auth, user, auth_settings) -> MfaRequiredResponse:
     resend_available_at = pre_auth.last_sent_at + timedelta(seconds=auth_settings.mfa_resend_delay_seconds) if pre_auth.last_sent_at else None
-    return MfaRequiredResponse(masked_email=mask_email(user.email), expires_at=pre_auth.expires_at, resend_available_at=resend_available_at)
+    return MfaRequiredResponse(masked_email=mask_email(user.email), expires_at=pre_auth.expires_at, resend_available_at=resend_available_at, return_to=pre_auth.return_to)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -71,26 +44,32 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
 
     if mfa_required_for_user(user):
         auth_settings = get_or_create_authentication_settings(db)
-        pre_auth, token = create_pre_auth_session(db, user=user, ip_address=ip_address, user_agent=request.headers.get("user-agent"))
+        pre_auth, token = create_pre_auth_session(
+            db,
+            user=user,
+            ip_address=ip_address,
+            user_agent=request.headers.get("user-agent"),
+            return_to=return_to,
+        )
         try:
             send_email_mfa_code(db, user=user, pre_auth_session=pre_auth, ip_address=ip_address)
         except EmailDeliveryError as exc:
             db.rollback()
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.public_message) from exc
         db.commit()
-        _set_pre_auth_cookie(response, token, auth_settings.mfa_code_expiration_minutes * 60)
+        set_pre_auth_cookie(response, token, auth_settings.mfa_code_expiration_minutes * 60)
         mfa_payload = _mfa_response(pre_auth, user, auth_settings)
         return LoginResponse(status="MFA_REQUIRED", masked_email=mfa_payload.masked_email, expires_at=mfa_payload.expires_at, resend_available_at=mfa_payload.resend_available_at, return_to=return_to)
 
-    user, token, max_age = create_session_for_user(db, user=user, ip_address=ip_address, user_agent=request.headers.get("user-agent"))
+    user, token, max_age = create_session_for_user(db, user=user, ip_address=ip_address, user_agent=request.headers.get("user-agent"), mfa_satisfied=False)
     db.commit()
     db.refresh(user)
-    _set_session_cookie(response, token, max_age)
+    set_session_cookie(response, token, max_age)
     return LoginResponse(status="AUTHENTICATED", user=current_user_payload(user, db), return_to=return_to)
 
 
-@router.post("/mfa/verify", response_model=CurrentUser)
-def verify_mfa(payload: EmailMfaVerifyRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> CurrentUser:
+@router.post("/mfa/verify", response_model=MfaVerifyResponse)
+def verify_mfa(payload: EmailMfaVerifyRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> MfaVerifyResponse:
     ip_address = request.client.host if request.client else "unknown"
     if not rate_limiter.allow(f"mfa-verify:{ip_address}", limit=15, window_seconds=300):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many verification attempts. Please wait and try again.")
@@ -101,12 +80,13 @@ def verify_mfa(payload: EmailMfaVerifyRequest, request: Request, response: Respo
     if not user:
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired verification code.")
-    user, token, max_age = create_session_for_user(db, user=user, ip_address=ip_address, user_agent=request.headers.get("user-agent"))
+    return_to = pre_auth.return_to
+    user, token, max_age = create_session_for_user(db, user=user, ip_address=ip_address, user_agent=request.headers.get("user-agent"), mfa_satisfied=True)
     db.commit()
     db.refresh(user)
-    _clear_pre_auth_cookie(response)
-    _set_session_cookie(response, token, max_age)
-    return current_user_payload(user, db)
+    clear_pre_auth_cookie(response)
+    set_session_cookie(response, token, max_age)
+    return MfaVerifyResponse(user=current_user_payload(user, db), return_to=return_to)
 
 
 @router.post("/mfa/resend", response_model=MfaRequiredResponse)
@@ -138,15 +118,15 @@ def cancel_mfa(request: Request, response: Response, db: Session = Depends(get_d
     if pre_auth:
         cancel_pre_auth_session(db, pre_auth_session=pre_auth, ip_address=request.client.host if request.client else None)
         db.commit()
-    _clear_pre_auth_cookie(response)
+    clear_pre_auth_cookie(response)
 
 
 @router.post("/logout", status_code=204)
 def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> None:
     token = request.cookies.get(settings.session_cookie_name)
     revoke_session(db, token, ip_address=request.client.host if request.client else None)
-    response.delete_cookie(settings.session_cookie_name, domain=settings.cookie_domain or None)
-    _clear_pre_auth_cookie(response)
+    clear_session_cookie(response)
+    clear_pre_auth_cookie(response)
 
 
 @router.post("/password-reset/request")

@@ -19,7 +19,7 @@ def opportunity_radar() -> Application:
         icon="RADAR",
         category="Career Tools",
         application_type=ApplicationType.INTERNAL_WEB,
-        launch_url="https://blueashdigital.tech/OpportunityRadar",
+        launch_url="https://radar.blueashdigital.tech/",
         enabled=True,
         administrator_only=False,
         display_order=20,
@@ -56,7 +56,7 @@ def test_administrator_query_keeps_existing_all_enabled_apps_behavior() -> None:
 
     result = list_applications(user=user, db=db)
 
-    assert result[0].launch_url == "https://blueashdigital.tech/OpportunityRadar"
+    assert result[0].launch_url == "https://radar.blueashdigital.tech/"
     statement = db.scalars.call_args.args[0]
     sql = str(statement.compile(dialect=postgresql.dialect()))
     assert "JOIN user_applications" not in sql
@@ -79,5 +79,5 @@ def test_assigned_user_can_launch_canonical_opportunity_radar_url() -> None:
     db.scalar.return_value = opportunity_radar()
 
     assert launch_application(opportunity_radar().id, user=user, db=db) == {
-        "launch_url": "https://blueashdigital.tech/OpportunityRadar"
+        "launch_url": "https://radar.blueashdigital.tech/"
     }

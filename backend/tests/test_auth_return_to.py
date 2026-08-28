@@ -48,17 +48,16 @@ def test_password_login_returns_normalized_deep_link(authenticate, _mfa, create_
     create_session.return_value = (user, "session-token", 1800)
     db = Mock()
 
-    with patch("app.core.redirects.settings.frontend_origin", "https://blueashdigital.tech"):
-        result = login(
-            LoginRequest(
-                identifier="assigned", password="correct-password",
-                return_to="https://blueashdigital.tech/OpportunityRadar/utilities?tab=email",
-            ),
-            http_request(), Response(), db,
-        )
+    result = login(
+        LoginRequest(
+            identifier="assigned", password="correct-password",
+            return_to="https://radar.blueashdigital.tech/jobs?tab=active",
+        ),
+        http_request(), Response(), db,
+    )
 
     assert result.status == "AUTHENTICATED"
-    assert result.return_to == "/OpportunityRadar/utilities?tab=email"
+    assert result.return_to == "https://radar.blueashdigital.tech/jobs?tab=active"
 
 
 @patch("app.api.auth.get_or_create_authentication_settings")
@@ -70,17 +69,22 @@ def test_mfa_challenge_preserves_normalized_return_to(authenticate, _mfa, create
     user = portal_user()
     authenticate.return_value = user
     now = datetime.now(UTC)
-    pre_auth = SimpleNamespace(last_sent_at=now, expires_at=now + timedelta(minutes=10))
+    pre_auth = SimpleNamespace(
+        last_sent_at=now,
+        expires_at=now + timedelta(minutes=10),
+        return_to="https://radar.blueashdigital.tech/jobs",
+    )
     create_pre_auth.return_value = (pre_auth, "pre-auth-token")
     settings.return_value = SimpleNamespace(mfa_code_expiration_minutes=10, mfa_resend_delay_seconds=60)
 
     result = login(
-        LoginRequest(identifier="assigned", password="correct-password", return_to="/OpportunityRadar/jobs"),
+        LoginRequest(identifier="assigned", password="correct-password", return_to="/jobs"),
         http_request(), Response(), Mock(),
     )
 
     assert result.status == "MFA_REQUIRED"
-    assert result.return_to == "/OpportunityRadar/jobs"
+    assert result.return_to == "https://radar.blueashdigital.tech/jobs"
+    assert create_pre_auth.call_args.kwargs["return_to"] == "https://radar.blueashdigital.tech/jobs"
 
 
 @patch("app.api.auth.current_user_payload", side_effect=lambda user, db: current_user())
@@ -105,24 +109,27 @@ def test_invalid_return_to_falls_back_without_failing_login(authenticate, _mfa, 
 @patch("app.api.auth.create_session_for_user")
 @patch("app.api.auth.verify_email_mfa_code")
 @patch("app.api.auth.get_pre_auth_session")
-def test_valid_mfa_creates_shared_session_cookie(get_pre_auth, verify_code, create_session, _payload) -> None:
+def test_valid_mfa_creates_host_only_session_cookie(get_pre_auth, verify_code, create_session, _payload) -> None:
     user = portal_user()
-    get_pre_auth.return_value = SimpleNamespace(id="pre-auth")
+    get_pre_auth.return_value = SimpleNamespace(id="pre-auth", return_to="https://radar.blueashdigital.tech/")
     verify_code.return_value = user
     create_session.return_value = (user, "session-token", 1800)
     response = Response()
 
     result = verify_mfa(EmailMfaVerifyRequest(code="123456"), http_request(), response, Mock())
 
-    assert result.email == "assigned@example.com"
+    assert result.user.email == "assigned@example.com"
+    assert result.return_to == "https://radar.blueashdigital.tech/"
     set_cookies = response.headers.getlist("set-cookie")
     session_cookie = next(value for value in set_cookies if value.startswith("blueash_session="))
     assert "blueash_session=session-token" in session_cookie
     assert "HttpOnly" in session_cookie
+    assert "Domain=" not in session_cookie
+    assert "Path=/" in session_cookie
 
 
 @patch("app.api.auth.revoke_session")
-def test_logout_revokes_session_and_clears_shared_cookie(revoke) -> None:
+def test_logout_revokes_session_and_clears_host_only_cookie(revoke) -> None:
     response = Response()
     db = Mock()
 

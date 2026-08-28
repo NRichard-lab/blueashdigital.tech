@@ -34,6 +34,12 @@ class MfaRequiredResponse(BaseModel):
     masked_email: str
     expires_at: datetime
     resend_available_at: datetime | None = None
+    return_to: str | None = None
+
+
+class MfaVerifyResponse(BaseModel):
+    user: CurrentUser
+    return_to: str | None = None
 
 
 class LoginResponse(BaseModel):

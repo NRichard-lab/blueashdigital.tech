@@ -11,15 +11,30 @@
 
 Use `.env.example` only as a variable checklist. Keep all real secret values in Hostinger's project environment and outside Git.
 
-## Release Migration
+## Phase 3 Migration (Not Yet Authorized For Production)
 
-The only expected migration for the Opportunity Radar release is:
+The locally validated application-auth transition is:
 
 ```text
-20260823_0004 -> 20260825_0005
+20260825_0005 -> 20260827_0006
 ```
 
-Verify production's `alembic_version` and take a restorable PostgreSQL backup before authorizing the upgrade. Do not stamp or modify the production revision during release preparation.
+Do not apply `20260827_0006` until Opportunity Radar is deployed and verified directly at
+`https://radar.blueashdigital.tech/`. The eventual order is Radar deployment, direct verification,
+Portal release preparation and PostgreSQL backup, `0006` upgrade, then Launch verification. Do not
+stamp or modify the production revision during release preparation.
+
+## Application Authentication Secrets And Cookies
+
+Set `OPPORTUNITY_RADAR_CLIENT_ID=opportunity-radar` and provision the same strong, independently
+generated `OPPORTUNITY_RADAR_CLIENT_SECRET` in the Portal and Radar server environments. Never put
+the real value in Git or frontend build variables.
+
+Production Portal auth cookies use the `__Host-` prefix, Secure, HttpOnly, SameSite=Lax, Path=/, and
+no Domain attribute. The first deployment invalidates the old `blueash_session` and
+`blueash_pre_auth` parent-domain cookies on ordinary API responses. Existing sessions will therefore
+receive a deliberate one-time logout; announce this before rollout. Remove the transitional legacy
+cookie-expiry middleware only in a later reviewed release after old cookies can no longer exist.
 
 ## Email Secret Encryption
 

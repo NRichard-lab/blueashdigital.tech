@@ -33,5 +33,6 @@ class PreAuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    return_to: Mapped[str | None] = mapped_column(String(2048))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,4 +1,5 @@
 from app.models.application import Application, ApplicationStatus, ApplicationType, UserApplication
+from app.models.application_auth import ApplicationAuthorizationCode, ApplicationSession
 from app.models.authentication import AuthenticationSettings, PreAuthSession
 from app.models.audit import AuditLog
 from app.models.email_settings import EmailMfaChallenge, EmailProviderType, EmailSettings, EmailStatus
@@ -12,6 +13,8 @@ __all__ = [
     "Application",
     "ApplicationStatus",
     "ApplicationType",
+    "ApplicationAuthorizationCode",
+    "ApplicationSession",
     "AuthenticationSettings",
     "AuditLog",
     "EmailMfaChallenge",

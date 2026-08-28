@@ -135,6 +135,11 @@ export type LoginResponse =
   | { status: "AUTHENTICATED"; user: CurrentUser; masked_email?: null; expires_at?: null; resend_available_at?: null; return_to?: string | null }
   | MfaRequired;
 
+export type MfaVerifyResponse = {
+  user: CurrentUser;
+  return_to: string | null;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://api.blueashdigital.tech";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -211,7 +216,7 @@ export const api = {
       body: JSON.stringify({ identifier, password, return_to: returnTo }),
     }),
   verifyMfa: (code: string) =>
-    request<CurrentUser>("/api/auth/mfa/verify", {
+    request<MfaVerifyResponse>("/api/auth/mfa/verify", {
       method: "POST",
       body: JSON.stringify({ code }),
     }),

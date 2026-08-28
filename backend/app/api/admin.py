@@ -16,6 +16,7 @@ from app.models.user import Role, User
 from app.schemas.application import ApplicationRead
 from app.schemas.user import PasswordResetRequest, UserCreate, UserListResponse, UserRead, UserUpdate
 from app.services.auth_service import revoke_user_auth_state
+from app.services.application_auth_service import revoke_application_auth_for_user
 from app.services.audit_service import write_audit
 from app.services.mfa_email_service import invalidate_user_mfa_state
 
@@ -44,18 +45,18 @@ def ensure_admin_remains(db: Session, target: User, *, new_role: Role | None = N
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one enabled administrator account must remain.")
 
 
-def replace_assignments(db: Session, user: User, application_ids: list[uuid.UUID]) -> None:
+def replace_assignments(db: Session, user: User, application_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    previous_ids = set(db.scalars(select(UserApplication.application_id).where(UserApplication.user_id == user.id)).all())
     db.execute(delete(UserApplication).where(UserApplication.user_id == user.id))
-    if user.role == Role.ADMINISTRATOR:
-        return
     if not application_ids:
-        return
+        return previous_ids
     valid_ids = set(db.scalars(select(Application.id).where(Application.id.in_(application_ids))).all())
     missing = set(application_ids) - valid_ids
     if missing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more selected applications do not exist.")
     for application_id in sorted(valid_ids, key=str):
         db.add(UserApplication(user_id=user.id, application_id=application_id))
+    return previous_ids - valid_ids
 
 
 def revoke_user_sessions(db: Session, user_id: uuid.UUID) -> None:
@@ -136,21 +137,31 @@ def update_user(user_id: uuid.UUID, payload: UserUpdate, request: Request, admin
     ensure_admin_remains(db, user, new_role=payload.role, enabled=payload.enabled)
     previous_role = user.role
     previous_enabled = user.enabled
+    previous_mfa_required = user.mfa_required
     user.email = payload.email.lower()
     user.display_name = payload.display_name
     user.role = payload.role
     user.enabled = payload.enabled
     user.mfa_required = True if payload.role == Role.ADMINISTRATOR else payload.mfa_required
-    replace_assignments(db, user, payload.application_ids)
-    if previous_enabled and not user.enabled:
+    removed_application_ids = replace_assignments(db, user, payload.application_ids)
+    security_policy_changed = previous_role != user.role or previous_mfa_required != user.mfa_required
+    if (previous_enabled and not user.enabled) or security_policy_changed:
         revoke_user_sessions(db, user.id)
+    elif removed_application_ids:
+        revoke_application_auth_for_user(
+            db,
+            user.id,
+            reason="APPLICATION_ASSIGNMENT_REMOVED",
+            application_ids=removed_application_ids,
+        )
+    if previous_enabled and not user.enabled:
         write_audit(db, event_type="USER_DISABLED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id))
     elif not previous_enabled and user.enabled:
         write_audit(db, event_type="USER_ENABLED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id))
     if previous_role != user.role:
         write_audit(db, event_type="USER_ROLE_CHANGED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id), metadata={"from": previous_role.value, "to": user.role.value})
     write_audit(db, event_type="USER_EDITED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id))
-    write_audit(db, event_type="USER_APPLICATIONS_CHANGED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id), metadata={"application_count": len(payload.application_ids) if user.role != Role.ADMINISTRATOR else "all"})
+    write_audit(db, event_type="USER_APPLICATIONS_CHANGED", result="SUCCESS", user_id=admin_user.id, ip_address=request.client.host if request.client else None, target_type="USER", target_id=str(user.id), metadata={"application_count": len(payload.application_ids)})
     db.commit()
     db.refresh(user)
     return serialize_user(db, user)

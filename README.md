@@ -109,7 +109,10 @@ https://blueashdigital.tech
 https://www.blueashdigital.tech
 ```
 
-The backend sends secure cookies for `.blueashdigital.tech` in production. Keep both frontend origins and the API on HTTPS.
+The backend sends Secure, HttpOnly, SameSite=Lax, host-only `__Host-` cookies for
+`api.blueashdigital.tech`; it does not share the Portal bearer session with sibling subdomains.
+The first release using this policy intentionally expires the legacy `.blueashdigital.tech`
+cookies on every API response, so users will perform a one-time sign-in after deployment.
 
 ## Backups
 
@@ -146,15 +149,32 @@ Register each future app in Admin > Applications, assign users, and launch it fr
 
 ### Opportunity Radar
 
-Migration `20260825_0005` registers Opportunity Radar in the existing application registry with slug
-`opportunity-radar` and launch URL `https://blueashdigital.tech/OpportunityRadar`. Administrators see
-the enabled application automatically. Standard users see and may launch it only when its existing
-`user_applications` assignment is enabled in User Administration.
+Migration `20260825_0005` originally registered Opportunity Radar. The new forward migration
+`20260827_0006` prepares its future production registry values without modifying the applied `0005`:
 
-Opportunity Radar redirects signed-out users to the portal with a `returnTo` query value. The login
-flow accepts only the canonical `/OpportunityRadar` path and its descendants on `blueashdigital.tech`,
-normalizes the destination to a relative path, preserves it through email MFA, and restores it after
-authentication. Invalid or external destinations are ignored and normal portal navigation is used.
+```text
+launch_url=https://radar.blueashdigital.tech/
+health_check_url=https://radar.blueashdigital.tech/api/health
+internal_service_url=NULL
+status=UNKNOWN
+```
+
+Portal-to-Radar authentication uses a 60-second, opaque, hash-only, one-time authorization code with
+S256 PKCE. Radar exchanges it server-to-server using its configured client credentials. The Portal
+then issues a hash-only, app-scoped session with a 30-minute idle timeout and an absolute expiration
+bounded by the parent Portal session. Exchange, introspection, and revoke endpoints are under
+`/api/app-auth`; raw codes, tokens, Portal cookies, and client secrets are never audit metadata.
+
+Every user, including an administrator, needs an explicit `user_applications` assignment for this
+handoff. Administrators retain the existing dashboard behavior that displays every enabled app.
+Portal login `returnTo` accepts only the exact Radar HTTPS origin and non-`/api` UI paths, and the
+server persists the normalized destination through email MFA.
+
+Run one bounded cleanup batch from a scheduler with:
+
+```bash
+python -m app.cli.cleanup_application_auth --batch-size 500
+```
 
 ## Development Notes
 
@@ -172,14 +192,16 @@ image tag and OCI revision label. Set it to the full approved release commit SHA
 deployment. There is no fallback tag, so a missing release revision fails Compose validation
 instead of silently reusing an older image. `SOURCE_VERSION` is deprecated and ignored.
 
-### Migration for this release
+### Phase 3 migration (local validation only)
 
-The only expected database transition is:
+The Phase 3 database transition is:
 
 ```text
-20260823_0004 -> 20260825_0005
+20260825_0005 -> 20260827_0006
 ```
 
-Migration `20260825_0005` registers Opportunity Radar. Do not run it until the production database
-has been backed up and the current `alembic_version` has been verified as `20260823_0004`.
+Do not apply `20260827_0006` to production during Phase 3. The future rollout order is: deploy and
+verify Radar directly, prepare the Portal release and backup PostgreSQL, apply `0006`, then verify
+Portal Launch. Production must provide an independently generated
+`OPPORTUNITY_RADAR_CLIENT_SECRET` of at least 32 characters to both backends outside Git.
 

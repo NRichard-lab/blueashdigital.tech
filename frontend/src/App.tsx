@@ -105,8 +105,8 @@ export function App() {
     event.preventDefault();
     setError("");
     try {
-      const currentUser = await api.verifyMfa(mfaCode);
-      completeAuthentication(currentUser, mfaPrompt?.return_to ?? returnTo);
+      const result = await api.verifyMfa(mfaCode);
+      completeAuthentication(result.user, result.return_to ?? mfaPrompt?.return_to ?? returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid or expired verification code.");
     }
@@ -116,7 +116,7 @@ export function App() {
     setError("");
     try {
       const result = await api.resendMfa();
-      setMfaPrompt((current) => ({ masked_email: result.masked_email, expires_at: result.expires_at, resend_available_at: result.resend_available_at, return_to: current?.return_to ?? returnTo }));
+      setMfaPrompt((current) => ({ masked_email: result.masked_email, expires_at: result.expires_at, resend_available_at: result.resend_available_at, return_to: result.return_to ?? current?.return_to ?? returnTo }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to send a new verification code.");
     }
@@ -364,7 +364,7 @@ function UsersAdmin({ currentUser }: { currentUser: CurrentUser }) {
       temporary_password: draft.temporary_password,
       enabled: draft.enabled,
       mfa_required: effectiveMfaRequired,
-      application_ids: draft.role === "ADMINISTRATOR" ? [] : draft.application_ids,
+      application_ids: draft.application_ids,
     };
     try {
       if (draft.id) {
@@ -438,7 +438,7 @@ function UsersAdmin({ currentUser }: { currentUser: CurrentUser }) {
               <tr key={item.id}>
                 <td>{item.username}</td><td>{item.display_name}</td><td>{item.email}</td><td>{item.role === "ADMINISTRATOR" ? "Admin" : "User"}</td>
                 <td><span className={`pill ${item.enabled ? "good" : "bad"}`}>{item.enabled ? "Enabled" : "Disabled"}</span></td>
-                <td>{item.mfa_required ? "Email required" : "Not required"}</td><td>{formatDate(item.last_login_at)}</td><td>{item.role === "ADMINISTRATOR" ? "All" : item.applications_assigned}</td>
+                <td>{item.mfa_required ? "Email required" : "Not required"}</td><td>{formatDate(item.last_login_at)}</td><td>{item.applications_assigned}</td>
                 <td><div className="action-row"><button title="Edit" onClick={() => beginEdit(item)}><Pencil size={16} /></button><button title="Reset password" onClick={() => resetPassword(item)}><KeyRound size={16} /></button><button title="Reset MFA" onClick={() => resetMfa(item)}><ShieldCheck size={16} /></button><button title="Delete" disabled={item.id === currentUser.id} onClick={() => deleteUser(item)}><Trash2 size={16} /></button></div></td>
               </tr>
             ))}
@@ -479,7 +479,8 @@ function UserModal({ draft, setDraft, applications, onCancel, onSave }: { draft:
         {adminMfa ? <div className="info-banner">Email MFA is always required for administrator accounts.</div> : null}
         <section className="assignment-panel">
           <h4>Application Access</h4>
-          {draft.role === "ADMINISTRATOR" ? <p>Administrators automatically have access to all applications.</p> : <div className="assignment-grid">{applications.map((app) => <label key={app.id}><input type="checkbox" checked={selected.has(app.id)} onChange={() => toggleApp(app.id)} /><span>{app.name}</span></label>)}</div>}
+          {draft.role === "ADMINISTRATOR" ? <p>Administrators see all dashboard applications, but secure application handoff still requires an explicit assignment.</p> : null}
+          <div className="assignment-grid">{applications.map((app) => <label key={app.id}><input type="checkbox" checked={selected.has(app.id)} onChange={() => toggleApp(app.id)} /><span>{app.name}</span></label>)}</div>
         </section>
         <footer className="modal-actions"><button className="secondary-action" onClick={onCancel}>Cancel</button><button className="primary-action compact" onClick={onSave}>Save</button></footer>
       </section>

@@ -1,10 +1,10 @@
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import admin, applications, auth, profile, settings as admin_settings
+from app.api import admin, application_auth, applications, auth, profile, settings as admin_settings
 from app.core.config import settings
+from app.core.cookies import clear_legacy_parent_auth_cookies
 from app.database.session import SessionLocal
 from app.services.permission_service import ensure_permission_catalog
 
@@ -19,11 +19,18 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, https_only=settings.is_production, same_site="lax")
+
+
+@app.middleware("http")
+async def expire_legacy_parent_auth_cookies(request, call_next):
+    response = await call_next(request)
+    clear_legacy_parent_auth_cookies(response)
+    return response
 
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(applications.router)
+app.include_router(application_auth.router)
 app.include_router(admin.router)
 app.include_router(admin_settings.router)
 
