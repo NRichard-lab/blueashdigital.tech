@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Radar, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
 import { api, AuthenticationSettings, CurrentUser, EmailSettings, EmailSettingsPayload, formatApiError, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
 import { normalizeReturnTo } from "./returnTo";
@@ -45,6 +45,8 @@ export function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [publicMode, setPublicMode] = useState<PublicMode>(() => window.location.pathname.includes("reset-password") ? "reset-password" : window.location.pathname.includes("forgot-password") ? "forgot-password" : "login");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const loginRequestPending = useRef(false);
 
   useEffect(() => {
     api.me().then((currentUser) => {
@@ -85,6 +87,10 @@ export function App() {
 
   async function handleLogin(event: React.FormEvent) {
     event.preventDefault();
+    if (loginRequestPending.current) return;
+
+    loginRequestPending.current = true;
+    setIsLoggingIn(true);
     setError("");
     try {
       const currentUser = await api.login(identifier, password, returnTo);
@@ -98,6 +104,9 @@ export function App() {
       completeAuthentication(currentUser.user, currentUser.return_to ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid username/email or password.");
+    } finally {
+      loginRequestPending.current = false;
+      setIsLoggingIn(false);
     }
   }
 
@@ -177,11 +186,15 @@ export function App() {
             {error ? <div className="form-error">{error}</div> : null}
             <button className="primary-action" type="submit"><ShieldCheck size={18} />Verify</button>
             <div className="public-actions"><button className="quiet-button inline" type="button" onClick={handleMfaResend}>Resend Code</button><button className="quiet-button inline" type="button" onClick={handleMfaCancel}>Cancel</button></div>
-          </form> : <form onSubmit={handleLogin}>
-            <label>Username or Email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required /></label>
-            <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" required /></label>
+          </form> : <form className={isLoggingIn ? "login-form is-processing" : "login-form"} onSubmit={handleLogin} aria-busy={isLoggingIn}>
+            <label>Username or Email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" disabled={isLoggingIn} required /></label>
+            <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" disabled={isLoggingIn} required /></label>
             {error ? <div className="form-error">{error}</div> : null}
-            <button className="primary-action" type="submit"><LockKeyhole size={18} />Sign In</button>
+            <button className="primary-action" type="submit" disabled={isLoggingIn}>
+              {isLoggingIn ? <span className="login-spinner" aria-hidden="true" /> : <LockKeyhole size={18} />}
+              {isLoggingIn ? "Signing in..." : "Sign In"}
+            </button>
+            {isLoggingIn ? <div className="login-status" role="status" aria-live="polite">Signing you in and preparing your verification code...</div> : null}
           </form>}
           {!mfaPrompt ? <button className="quiet-button" type="button" onClick={() => setPublicMode("forgot-password")}>Forgot Password?</button> : null}
         </section>

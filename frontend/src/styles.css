@@ -121,6 +121,18 @@ input:focus {
   box-shadow: 0 0 0 3px rgba(104, 216, 239, 0.14);
 }
 
+.login-form {
+  transition: opacity 160ms ease;
+}
+
+.login-form.is-processing {
+  opacity: 0.72;
+}
+
+.login-form input:disabled {
+  cursor: not-allowed;
+}
+
 .primary-action,
 .launch-button,
 .secondary-action {
@@ -148,6 +160,44 @@ input:focus {
   background: rgba(184, 218, 226, 0.06);
   color: #d6e5ea;
   font-weight: 700;
+}
+
+.primary-action:disabled {
+  background: #63838b;
+  color: #d7e1e4;
+  cursor: wait;
+}
+
+.login-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(215, 225, 228, 0.38);
+  border-top-color: #f5fdff;
+  border-radius: 50%;
+  animation: login-spin 700ms linear infinite;
+}
+
+.login-status {
+  margin-top: -4px;
+  color: #a9bac1;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-form {
+    transition: none;
+  }
+
+  .login-spinner {
+    animation-duration: 1.4s;
+  }
 }
 
 .quiet-link,
