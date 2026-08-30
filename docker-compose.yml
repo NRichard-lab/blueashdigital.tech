@@ -86,14 +86,8 @@ services:
       start_period: 30s
 
   frontend:
-    image: blueashdigital-tech-frontend:${DEPLOYMENT_VERSION:?DEPLOYMENT_VERSION must be a full release commit SHA}
+    image: nickr4408/blueashdigital-tech-frontend:9eb0da3b0c5c6fa12c127d6d7348e20b9b3c6108
     restart: unless-stopped
-    build:
-      context: ./frontend
-      args:
-        DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION}
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?VITE_API_BASE_URL is required}
-        VITE_RADAR_PUBLIC_ORIGIN: ${VITE_RADAR_PUBLIC_ORIGIN:-https://radar.blueashdigital.tech}
     depends_on:
       backend:
         condition: service_healthy
