@@ -5,6 +5,8 @@
 - `docker-compose.yml` is the only production Compose file.
 - Caddy owns `api.blueashdigital.tech` on the VPS.
 - Hostinger's managed frontend owns `blueashdigital.tech` and `www.blueashdigital.tech`.
+- The public site and portal frontend architecture, including what is still pending before a live website deploy, is in [website.md](website.md).
+- As of 22 September 2026 the live Hostinger frontend was still the completed Node.js deployment `01a05481-ce71-7008-9732-5de55fc03d93` of commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The redesigned website had not been deployed. Do not deploy it without a separate approval. Rolling back the frontend means redeploying that commit through the existing Hostinger Node.js deployment. Do not change the API image, database, Agent, or TV app as part of a website deploy.
 - `DEPLOYMENT_VERSION` is required and must be the full approved release commit SHA.
 - `SOURCE_VERSION` is deprecated and ignored.
 - No `traefik-public` network is required.

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AppWindow, CheckCircle2, KeyRound, LockKeyhole, LogOut, Mail, Pencil, Plus, Radar, Search, Settings, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
 import { api, AuthenticationSettings, CurrentUser, EmailSettings, EmailSettingsPayload, formatApiError, ManagedUser, PermissionRead, PortalApplication, Role, RoleRead, UserPayload } from "./api";
 import { normalizeReturnTo } from "./returnTo";
+import { ForgotPasswordScreen, ResetPasswordScreen, SignInScreen } from "./site/auth";
+import { Marketing } from "./site/pages";
+import { navigationAfterSessionCheck, resolveRoute, shouldRedirectHomeToSignIn } from "./site/routes";
 
 type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "admin-settings" | "profile";
-type PublicMode = "login" | "forgot-password" | "reset-password";
 type UserDraft = {
   id?: string;
   username: string;
@@ -44,18 +46,40 @@ export function App() {
   const [category, setCategory] = useState("All");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [publicMode, setPublicMode] = useState<PublicMode>(() => window.location.pathname.includes("reset-password") ? "reset-password" : window.location.pathname.includes("forgot-password") ? "forgot-password" : "login");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const loginRequestPending = useRef(false);
 
   useEffect(() => {
+    let redirecting = false;
     api.me().then((currentUser) => {
-      if (initialReturnTo) {
-        window.location.replace(initialReturnTo);
+      const href = navigationAfterSessionCheck({
+        pathname: window.location.pathname,
+        search: window.location.search,
+        authenticated: true,
+        returnTo: initialReturnTo,
+      });
+      if (href) {
+        redirecting = true;
+        window.location.replace(href);
         return;
       }
       setUser(currentUser);
-    }).catch(() => setUser(null)).finally(() => setLoading(false));
+    }).catch(() => {
+      const href = navigationAfterSessionCheck({
+        pathname: window.location.pathname,
+        search: window.location.search,
+        authenticated: false,
+        returnTo: null,
+      });
+      if (href) {
+        redirecting = true;
+        window.location.replace(href);
+        return;
+      }
+      setUser(null);
+    }).finally(() => {
+      if (!redirecting) setLoading(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -71,7 +95,20 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (loading) return;
+    const href = navigationAfterSessionCheck({
+      pathname: window.location.pathname,
+      search: window.location.search,
+      authenticated: Boolean(user),
+      returnTo: null,
+    });
+    if (!href) return;
+    if (!user && error) sessionStorage.setItem("blueash-auth-notice", error);
+    window.location.replace(href);
+  }, [loading, user, error]);
+
+  useEffect(() => {
+    if (!user || resolveRoute(window.location.pathname).kind !== "portal") return;
     if (!can(user, viewPermission(view))) setView("dashboard");
     api.apps().then(setApps).catch(() => setApps([]));
   }, [user, view]);
@@ -147,16 +184,11 @@ export function App() {
     setPassword("");
   }
 
-  function completeAuthentication(currentUser: CurrentUser, destination: string | null) {
+  function completeAuthentication(_currentUser: CurrentUser, destination: string | null) {
     setPassword("");
     setMfaCode("");
     setMfaPrompt(null);
-    if (destination) {
-      window.location.replace(destination);
-      return;
-    }
-    setUser(currentUser);
-    setView("dashboard");
+    window.location.replace(destination || "/portal");
   }
 
   async function launchApplication(app: PortalApplication) {
@@ -169,36 +201,42 @@ export function App() {
     }
   }
 
-  if (loading) return <main className="boot-screen">Blue Ash Digital</main>;
+  const route = resolveRoute(window.location.pathname);
 
-  if (!user) {
-    if (publicMode === "forgot-password") return <ForgotPassword onBack={() => setPublicMode("login")} />;
-    if (publicMode === "reset-password") return <ResetPassword onBack={() => setPublicMode("login")} />;
+  if (loading) {
+    if (route.kind === "marketing" && !shouldRedirectHomeToSignIn(window.location.pathname, window.location.search)) {
+      return <Marketing page={route.page} focus={route.focus ?? hashFocus()} signedIn={false} />;
+    }
+    return <main className="boot-screen">Blue Ash Digital</main>;
+  }
+
+  if (route.kind === "marketing") {
+    return <Marketing page={route.page} focus={route.focus ?? hashFocus()} signedIn={Boolean(user)} />;
+  }
+
+  if (!user && route.kind === "portal") return <main className="boot-screen">Blue Ash Digital</main>;
+
+  if (!user || route.kind === "auth") {
+    if (route.kind === "auth" && route.page === "forgot-password") return <ForgotPasswordScreen />;
+    if (route.kind === "auth" && route.page === "reset-password") return <ResetPasswordScreen />;
+    if (user) return <main className="boot-screen">Blue Ash Digital</main>;
     return (
-      <main className="public-shell">
-        <section className="login-panel" aria-label="Sign in">
-          <div className="brand-mark"><span>BA</span></div>
-          <h1>Blue Ash Digital</h1>
-          <p>Custom Applications Portal</p>
-          {mfaPrompt ? <form onSubmit={handleMfaVerify}>
-            <label>Verification Code<input value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" required /></label>
-            <div className="info-banner">Code sent to {mfaPrompt.masked_email}. It expires at {formatDate(mfaPrompt.expires_at)}.</div>
-            {error ? <div className="form-error">{error}</div> : null}
-            <button className="primary-action" type="submit"><ShieldCheck size={18} />Verify</button>
-            <div className="public-actions"><button className="quiet-button inline" type="button" onClick={handleMfaResend}>Resend Code</button><button className="quiet-button inline" type="button" onClick={handleMfaCancel}>Cancel</button></div>
-          </form> : <form className={isLoggingIn ? "login-form is-processing" : "login-form"} onSubmit={handleLogin} aria-busy={isLoggingIn}>
-            <label>Username or Email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" disabled={isLoggingIn} required /></label>
-            <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" disabled={isLoggingIn} required /></label>
-            {error ? <div className="form-error">{error}</div> : null}
-            <button className="primary-action" type="submit" disabled={isLoggingIn}>
-              {isLoggingIn ? <span className="login-spinner" aria-hidden="true" /> : <LockKeyhole size={18} />}
-              {isLoggingIn ? "Signing in..." : "Sign In"}
-            </button>
-            {isLoggingIn ? <div className="login-status" role="status" aria-live="polite">Signing you in and preparing your verification code...</div> : null}
-          </form>}
-          {!mfaPrompt ? <button className="quiet-button" type="button" onClick={() => setPublicMode("forgot-password")}>Forgot Password?</button> : null}
-        </section>
-      </main>
+      <SignInScreen
+        identifier={identifier}
+        setIdentifier={setIdentifier}
+        password={password}
+        setPassword={setPassword}
+        mfaCode={mfaCode}
+        setMfaCode={setMfaCode}
+        mfaPrompt={mfaPrompt}
+        error={error}
+        isLoggingIn={isLoggingIn}
+        hasReturnTo={Boolean(returnTo)}
+        onLogin={handleLogin}
+        onVerify={handleMfaVerify}
+        onResend={handleMfaResend}
+        onCancel={handleMfaCancel}
+      />
     );
   }
 
@@ -267,41 +305,9 @@ function viewPermission(view: View) {
   return permissions[view];
 }
 
-function ForgotPassword({ onBack }: { onBack: () => void }) {
-  const [identifier, setIdentifier] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    try {
-      const result = await api.requestPasswordReset(identifier);
-      setMessage(result.message);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to request password reset.");
-    }
-  }
-  return <main className="public-shell"><section className="login-panel" aria-label="Forgot password"><div className="brand-mark"><span>BA</span></div><h1>Password Reset</h1><p>Enter your username or email.</p><form onSubmit={submit}><label>Username or Email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>{message ? <div className="success-banner">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}<button className="primary-action" type="submit"><Mail size={18} /> Send Reset Link</button></form><button className="quiet-button" type="button" onClick={onBack}>Back to Sign In</button></section></main>;
-}
-
-function ResetPassword({ onBack }: { onBack: () => void }) {
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const token = new URLSearchParams(window.location.search).get("token") ?? "";
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    if (password !== confirm) return setError("Passwords do not match.");
-    try {
-      const result = await api.completePasswordReset(token, password);
-      setMessage(result.message);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to reset password.");
-    }
-  }
-  return <main className="public-shell"><section className="login-panel" aria-label="Reset password"><div className="brand-mark"><span>BA</span></div><h1>Set Password</h1><p>Choose a new portal password.</p><form onSubmit={submit}><label>New Password<input value={password} type="password" onChange={(event) => setPassword(event.target.value)} required minLength={12} /></label><label>Confirm Password<input value={confirm} type="password" onChange={(event) => setConfirm(event.target.value)} required minLength={12} /></label>{message ? <div className="success-banner">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}<button className="primary-action" type="submit"><KeyRound size={18} /> Reset Password</button></form><button className="quiet-button" type="button" onClick={onBack}>Back to Sign In</button></section></main>;
+function hashFocus() {
+  const hash = window.location.hash.replace(/^#/, "");
+  return hash || null;
 }
 
 function ApplicationDashboard({ apps, categories, category, query, setCategory, setQuery, user, launchApplication }: { apps: PortalApplication[]; categories: string[]; category: string; query: string; setCategory: (value: string) => void; setQuery: (value: string) => void; user: CurrentUser; launchApplication: (app: PortalApplication) => void }) {

@@ -79,6 +79,8 @@ www.blueashdigital.tech  -> Hostinger managed frontend
 api.blueashdigital.tech  -> Hostinger VPS Caddy
 ```
 
+The managed frontend serves both the public company site and the authenticated portal. `/` is the public homepage. `/portal` is the signed-in portal. Sign-in remains `/signin`. The route map, product catalog, authentication contract, and release status are in [docs/website.md](docs/website.md). Formal privacy and terms documents are not published yet.
+
 The authoritative VPS configuration is the root `docker-compose.yml`. It uses Caddy and does not require a Traefik network. The obsolete Traefik Compose file has been removed to prevent accidental use.
 
 Recommended VPS directory:
