@@ -6,6 +6,7 @@ from app.api import admin, application_auth, applications, auth, profile, settin
 from app.core.config import settings
 from app.core.cookies import clear_legacy_parent_auth_cookies
 from app.database.session import SessionLocal
+from app.services.email.service import ensure_local_development_mailbox
 from app.services.permission_service import ensure_permission_catalog
 
 logger = structlog.get_logger()
@@ -39,7 +40,8 @@ app.include_router(admin_settings.router)
 async def startup() -> None:
     with SessionLocal() as db:
         ensure_permission_catalog(db)
-    logger.info("portal_startup", app_env=settings.app_env)
+        ensure_local_development_mailbox(db)
+    logger.info("portal_startup", app_env=settings.app_env, local_smtp=bool(settings.smtp_host) and not settings.is_production)
 
 
 @app.get("/api/health")

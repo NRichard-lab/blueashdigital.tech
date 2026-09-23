@@ -52,4 +52,6 @@ Keep this value outside PostgreSQL and outside Git. If it is changed after email
 
 For local development, the backend falls back to `SECRET_KEY` when `EMAIL_ENCRYPTION_KEY` is not set. Production Compose requires a dedicated value.
 
+Local Compose can set `SMTP_HOST` to a development mailbox such as Mailpit. Production Compose does not set `SMTP_HOST`, and the backend refuses to start in production if that variable is present. Do not point production SMTP at a local catcher.
+
 If email credentials were encrypted before `EMAIL_ENCRYPTION_KEY` was configured, they were encrypted with `SECRET_KEY`. Preserve the old key long enough to re-enter and test the email credentials under the new dedicated key; do not rotate both blindly.

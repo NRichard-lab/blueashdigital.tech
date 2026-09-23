@@ -34,6 +34,7 @@ class RecordingSMTP:
 
 def test_hostinger_uses_ssl_and_configured_sender(monkeypatch) -> None:
     RecordingSMTP.instances = []
+    monkeypatch.setattr("app.services.email.hostinger.settings.smtp_host", None)
     monkeypatch.setattr("app.services.email.hostinger.smtplib.SMTP_SSL", RecordingSMTP)
 
     provider = HostingerProvider(
@@ -64,6 +65,7 @@ def test_hostinger_uses_ssl_and_configured_sender(monkeypatch) -> None:
 
 def test_hostinger_supports_starttls_fallback(monkeypatch) -> None:
     RecordingSMTP.instances = []
+    monkeypatch.setattr("app.services.email.hostinger.settings.smtp_host", None)
     monkeypatch.setattr("app.services.email.hostinger.smtplib.SMTP", RecordingSMTP)
 
     provider = HostingerProvider(
@@ -82,3 +84,53 @@ def test_hostinger_supports_starttls_fallback(monkeypatch) -> None:
     assert client.port == 587
     assert client.started_tls
     assert client.login_credentials == ("realmailbox@blueashdigital.tech", "mailbox-secret")
+
+
+def test_development_smtp_host_uses_the_local_catcher(monkeypatch) -> None:
+    RecordingSMTP.instances = []
+    monkeypatch.setattr("app.services.email.hostinger.smtplib.SMTP", RecordingSMTP)
+    monkeypatch.setattr("app.services.email.hostinger.settings.smtp_host", "mailpit")
+    monkeypatch.setattr("app.services.email.hostinger.settings.smtp_port", 1025)
+    monkeypatch.setattr("app.services.email.hostinger.settings.app_env", "development")
+
+    provider = HostingerProvider(
+        smtp_username="local-dev",
+        smtp_password="local-dev-mailbox",
+        from_email="no-reply@localhost",
+        from_name="Blue Ash Digital",
+        reply_to=None,
+    )
+    provider.send_email(
+        EmailMessage(
+            to="person@example.com",
+            subject="Blue Ash Digital verification code",
+            text_body="Your verification code is 000000.",
+            html_body="<p>Your verification code is <strong>000000</strong>.</p>",
+        )
+    )
+
+    client = RecordingSMTP.instances[0]
+    assert client.host == "mailpit"
+    assert client.port == 1025
+    assert not client.started_tls
+    assert client.login_credentials == ("local-dev", "local-dev-mailbox")
+
+
+def test_production_ignores_a_local_smtp_host(monkeypatch) -> None:
+    RecordingSMTP.instances = []
+    monkeypatch.setattr("app.services.email.hostinger.smtplib.SMTP_SSL", RecordingSMTP)
+    monkeypatch.setattr("app.services.email.hostinger.settings.smtp_host", "mailpit")
+    monkeypatch.setattr("app.services.email.hostinger.settings.app_env", "production")
+
+    provider = HostingerProvider(
+        smtp_username="realmailbox@blueashdigital.tech",
+        smtp_password="mailbox-secret",
+        from_email="donotreply@blueashdigital.tech",
+        from_name="Blue Ash Digital",
+        reply_to=None,
+    )
+    provider.test_connection()
+
+    client = RecordingSMTP.instances[0]
+    assert client.host == "smtp.hostinger.com"
+    assert client.port == 465

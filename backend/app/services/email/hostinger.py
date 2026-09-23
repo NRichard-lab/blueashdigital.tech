@@ -2,6 +2,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage as SmtpMessage
 
+from app.core.config import settings
 from app.services.email.base import EmailMessage, EmailProvider
 
 
@@ -28,6 +29,10 @@ class HostingerProvider(EmailProvider):
         self.smtp_security = smtp_security
 
     def _smtp(self) -> smtplib.SMTP:
+        if settings.smtp_host and not settings.is_production:
+            client = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
+            client.login(self.smtp_username, self.smtp_password)
+            return client
         context = ssl.create_default_context()
         if self.smtp_port == 587 or self.smtp_security == "STARTTLS":
             client = smtplib.SMTP(self.host, self.smtp_port, timeout=20)

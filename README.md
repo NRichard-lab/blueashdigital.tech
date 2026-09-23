@@ -59,6 +59,9 @@ You will be prompted for a password. Do not use a default password in production
 - Frontend: `http://localhost:8080`
 - API health: `http://localhost:8000/api/health`
 - API docs, local only: `http://localhost:8000/docs`
+- Local mailbox, local only: `http://127.0.0.1:8025`
+
+The local Compose file starts Mailpit and points the backend SMTP settings at it. That catcher accepts mail only inside the local stack. It does not send mail to the internet. Production Compose does not start Mailpit and does not set `SMTP_HOST`. Production startup rejects `SMTP_HOST` if it is present.
 
 ## Production Architecture On Hostinger
 

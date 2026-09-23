@@ -94,7 +94,7 @@ Images, marks, and fonts are in `frontend/public/brand` and `frontend/public/fon
 - `/signin` showed the form on first paint. Document load was about 85 ms. Forgot-password and reset-password also rendered immediately.
 - With the API unreachable, `/portal` and `/?returnTo=…` reached sign-in in about 4.2 seconds instead of waiting for the browser connection timeout.
 - The production build was previewed locally at `http://127.0.0.1:4174/`. Every listed route returned HTTP 200.
-- Email MFA is restyled inside the existing sign-in card. A live MFA challenge was not exercised.
+- Email MFA is restyled inside the existing sign-in card. The live challenge was completed later against the local mailbox, recorded below.
 
 ### Deferred
 
@@ -106,7 +106,7 @@ Images, marks, and fonts are in `frontend/public/brand` and `frontend/public/fon
 
 ### Authentication checks on the isolated local stack
 
-Checked on 22 September 2026 against Docker Postgres and the local backend only. The frontend dev server used `http://localhost:8000`. Email delivery is not configured in that stack, so MFA and a known-account reset email are not sent. No production account, DNS record, or Hostinger site was changed.
+Checked on 22 September 2026 against Docker Postgres and the local backend only. The frontend dev server used `http://localhost:8000`. No production account, DNS record, or Hostinger site was changed. The mailbox, MFA, and reset-email results are in the following sections. The two email-disabled outcomes below are from the pass before Mailpit was added.
 
 - Email login and username login both opened `/portal`. Refresh kept the session.
 - A signed-in visit to `/signin` or `/forgot-password` went to `/portal`. A signed-out visit to `/portal` went to `/signin`. No redirect loop.
@@ -115,16 +115,39 @@ Checked on 22 September 2026 against Docker Postgres and the local backend only.
 - Stopping the local API while a session already existed sent `/portal` back to sign-in. The portal shell was not left on screen. Starting the API again restored the existing local session.
 - An invalid session cookie returned HTTP 401. An empty login body returned HTTP 422.
 - `https://evil.example` kept the normal sign-in copy and, after a successful login, opened `/portal`. `https://radar.blueashdigital.tech/jobs` showed the continue copy. The local API origin is `https://radar.localhost`, so that production Radar URL was not returned and the session opened `/portal`. A return URL on the local origin, `https://radar.localhost/jobs`, was returned. Frontend tests still allow the production Radar origin and reject encoded external URLs, nested hosts, path traversal, and double encoding.
-- Administrator login did not open a session and did not show the MFA challenge. The form showed “Email service is currently disabled.” and Sign In was enabled again. A following visit to `/portal` went to sign-in. Incorrect and correct MFA codes, refresh or Back during a challenge, and `returnTo` through MFA were not exercised because no challenge was issued.
-- Unknown forgot-password returned the generic account message. A known account returned “Email service is currently disabled.” Invalid and expired reset tokens were rejected. A valid local reset token completed, the previous password was then rejected, and the new password signed in. Password mismatch is rejected in the page before a request. A missing token disables submit and does not call the API.
+- Before the local mailbox existed, administrator login did not open a session. The form showed “Email service is currently disabled.” and Sign In was enabled again.
+- Before the local mailbox existed, unknown forgot-password returned the generic account message and a known account returned “Email service is currently disabled.” Invalid and expired reset tokens were rejected. A valid local reset token completed, the previous password was then rejected, and the new password signed in. Password mismatch is rejected in the page before a request. A missing token disables submit and does not call the API.
 
-### Still blocking a live website deploy
+### Local mailbox
 
-- A real MFA challenge, rejection of a wrong code, completion with a correct code, and proof that refresh, Back, and `returnTo` cannot bypass MFA.
-- Delivery of a known-account password-reset email. The local stack has no mailbox.
-- A separate authorization to deploy. This document does not authorize one.
+Local Compose starts Mailpit and sets `SMTP_HOST=mailpit` on the backend only. The mailbox UI is `http://127.0.0.1:8025`. SMTP is `mailpit:1025` inside the Compose network, published on `127.0.0.1:1025`. The catcher does not deliver mail to the internet. Production Compose does not set `SMTP_HOST`, and production startup rejects that variable.
 
-The live rollback source remains `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The previous local candidate was `4357acaac52139083f3c183609e37668c14c89e9`. The auth-request bound on `main` is the current local candidate and is not deployed.
+The application still uses the existing email service. On development startup, when `SMTP_HOST` is set, that service writes one enabled local mailbox row and sends through plain SMTP to the catcher. The sender used for these checks was `no-reply@localhost`.
+
+To exercise an allowlisted local return, start the frontend with `VITE_API_BASE_URL=http://localhost:8000` and `VITE_RADAR_PUBLIC_ORIGIN=https://radar.localhost`. The local API allowlist origin is `https://radar.localhost`. Use an administrator account so MFA is required. Read the challenge from the local mailbox. Do not copy production mailbox credentials into this environment.
+
+### MFA and password-reset email checks
+
+Checked on 22 September 2026 against the isolated local stack and Mailpit. No production email setting, DNS record, Hostinger site, or production credential was changed.
+
+- A development test message reached the local mailbox. The sender was `no-reply@localhost`, the recipient matched the requested address, and the HTML body rendered. Backend logs did not include mailbox passwords or message bodies.
+- Administrator email login showed the MFA challenge and did not create a session. The profile request stayed unauthorized. The challenge email arrived in the local mailbox for the administrator address.
+- A wrong code stayed on the challenge, showed “Invalid or expired verification code.”, re-enabled Verify, and left the profile request unauthorized.
+- The matching code opened `/portal`. Refresh kept the session.
+- Refresh during an open challenge returned the sign-in form and left the profile request unauthorized. A direct `/portal` visit during that challenge redirected to `/signin`. Back returned to `/signin` with the same unauthorized profile request. Forward returns to `/portal`, and that route redirects to `/signin` while the challenge is unfinished.
+- Resend before the configured delay did not add a message. After the delay, resend added a new message and the previous code no longer matched the active challenge. The resend delay and existing rate limits were left unchanged.
+- Cancel returned the sign-in form with no session. A following `/portal` visit redirected to `/signin`.
+- After MFA, `https://radar.localhost/jobs` left the local site for that allowlisted URL. The Radar host is not running locally, so the browser showed a connection error instead of a Radar page. Returning to `/portal` still showed the authenticated session. `https://evil.example` stayed on the normal sign-in copy through the challenge and, after the correct code, opened `/portal`.
+- An unknown password-reset request returned the generic account message and created no mailbox message. A known account returned the same message and the reset email arrived locally. A valid link completed the reset. The previous password was then rejected and the new password signed in. A long invalid token returned “Password reset link is invalid or expired.”
+- With Mailpit stopped, administrator login, MFA resend, and a known-account reset each returned “Unable to send email.” within a few seconds. The submit controls were enabled again. None of those responses used the invalid-credentials message, and login did not open a session or a challenge. The 12 second client bound was not changed. Mailpit was started again after the check.
+
+With the mailbox available, a known account and an unknown account both receive the generic reset response. A known account still receives “Unable to send email.” when delivery fails. That existing response was left in place.
+
+### Still required before a live website deploy
+
+A separate authorization to deploy. This document does not authorize one.
+
+The live rollback source remains `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The previous local candidate was `888647533f4b393aac012b98b42c36a4757e1365`. The local mail verification on `main` is the current local candidate and is not deployed.
 
 ### Current production
 
@@ -141,4 +164,4 @@ The local production bundle after the auth-request bound was CSS 25.83 kB (6.20 
 
 ## Next step
 
-MFA still has to be verified with a non-production mailbox that can deliver a challenge without changing production email settings. Do not deploy the Hostinger frontend until that check passes and a separate deployment approval is given. The rollback source until then remains commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`.
+The public site and the local MFA checks are complete enough for a release decision. Deploying the Hostinger frontend still requires a separate approval. The rollback source until that approval is commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. Remaining risk: production SMTP was not exercised, and the local Radar return was confirmed by navigation to `https://radar.localhost/jobs` rather than by a running Radar application.

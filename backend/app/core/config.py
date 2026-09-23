@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     def validate_production_application_auth(self) -> "Settings":
         if not self.is_production:
             return self
+        if self.smtp_host:
+            raise ValueError("SMTP_HOST is local-development only and must not be set in production")
         secret = self.opportunity_radar_client_secret or ""
         if len(secret) < 32 or secret.lower().startswith(("change-me", "replace-me", "dev-only")):
             raise ValueError("OPPORTUNITY_RADAR_CLIENT_SECRET must be a strong production secret of at least 32 characters")

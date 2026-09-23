@@ -1,5 +1,26 @@
 services:
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+    networks:
+      - portal
+
   backend:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: local-dev
+      SMTP_PASSWORD: local-dev-mailbox
+      EMAIL_FROM: no-reply@localhost
+    depends_on:
+      mailpit:
+        condition: service_started
     ports:
       - "8000:8000"
 

@@ -4,8 +4,9 @@ import socket
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.secrets import decrypt_secret
-from app.models.email_settings import EmailProviderType, EmailSettings
+from app.core.config import settings as app_settings
+from app.core.secrets import decrypt_secret, encrypt_secret
+from app.models.email_settings import EmailProviderType, EmailSettings, EmailStatus
 from app.services.email.base import EmailMessage, EmailProvider
 from app.services.email.gmail import GmailProvider
 from app.services.email.hostinger import HostingerProvider
@@ -59,12 +60,33 @@ def _auth_error_message(settings: EmailSettings) -> str:
 
 def _send_error_message(settings: EmailSettings, exc: Exception) -> str:
     if settings.provider == EmailProviderType.HOSTINGER:
+        if app_settings.smtp_host and not app_settings.is_production:
+            return "Unable to send email."
         if isinstance(exc, (TimeoutError, socket.gaierror, ConnectionError, OSError)):
             return "Unable to connect to smtp.hostinger.com."
         if isinstance(exc, smtplib.SMTPSenderRefused):
             return "Hostinger rejected the configured sender address."
         return "Unable to send email with Hostinger Email."
     return "Unable to send email with the configured provider."
+
+
+def ensure_local_development_mailbox(db: Session) -> None:
+    if app_settings.is_production or not app_settings.smtp_host:
+        return
+    row = get_active_email_settings(db)
+    if row is None:
+        row = EmailSettings()
+        db.add(row)
+    row.provider = EmailProviderType.HOSTINGER
+    row.smtp_username = app_settings.smtp_username or "local-dev"
+    row.encrypted_smtp_password = encrypt_secret(app_settings.smtp_password or "local-dev-mailbox")
+    row.from_email = app_settings.email_from
+    row.from_name = row.from_name or "Blue Ash Digital"
+    row.smtp_port = app_settings.smtp_port
+    row.smtp_security = "STARTTLS"
+    row.enabled = True
+    row.status = EmailStatus.CONFIGURED
+    db.commit()
 
 
 def get_active_email_settings(db: Session) -> EmailSettings | None:
