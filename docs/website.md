@@ -143,25 +143,33 @@ Checked on 22 September 2026 against the isolated local stack and Mailpit. No pr
 
 With the mailbox available, a known account and an unknown account both receive the generic reset response. A known account still receives “Unable to send email.” when delivery fails. That existing response was left in place.
 
-### Still required before a live website deploy
+### Live website deployment
 
-A separate authorization to deploy. This document does not authorize one.
+Deployed on 22 September 2026 through the existing Hostinger Git deployment for `main`. DNS, Caddy, the VPS, Compose, the production API, the database, mail DNS, the Agent, and the TV app were not changed.
 
-The live rollback source remains `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The previous local candidate was `888647533f4b393aac012b98b42c36a4757e1365`. The local mail verification on `main` is the current local candidate and is not deployed.
+- Production commit: `02097001ca7fa4c60a75b63cc2db13ab0e406723`
+- Hostinger deployment: `01a0cc01-5cef-7369-bdfa-8b1f50fc9544`
+- Build: Node 22, Vite, root `frontend`, npm `build`, output `dist`. The server log shows `dist/index.html`, `dist/assets/index-Bf_a9aXT.css`, and `dist/assets/index-NR-trHit.js`.
+- Rollback revision: `f31acdfbd39b9abf673d24ee026ebeb7e6628887`, previous deployment `01a05481-ce71-7008-9732-5de55fc03d93`.
+
+Live checks the same evening:
+
+- `/` is the company homepage, title “Blue Ash Digital”, one `h1`, tree artwork and self-hosted fonts loaded. It is no longer the “Blue Ash Digital Portal” homepage.
+- `/products`, `/products/blue-ash-reel`, `/about`, `/development`, `/support`, `/privacy`, `/terms`, `/signin`, `/forgot-password`, `/reset-password`, `/portal`, and an unknown path each returned HTTP 200 SPA HTML. Direct loads rendered the matching screen. The unknown path rendered the site’s not-found page.
+- Public pages, including `/support`, made no Portal API request. `/signin` showed the form with document load around 119 ms while `GET /api/profile/me` ran in the background.
+- At 390px the homepage had no horizontal overflow. The menu opened to Products, What’s Building, Support, and Sign In, then closed.
+- `https://radar.blueashdigital.tech/jobs` showed the continue copy. `https://evil.example` kept the normal sign-in copy. A signed-out `/portal` visit returned to `/signin`.
+- One invalid sign-in and one unknown forgot-password request each returned “We couldn't reach Blue Ash Digital. Check your connection and try again.” within the 12 second bound, re-enabled the button, and created no session. `https://api.blueashdigital.tech/api/health` timed out after 15 seconds from this network. Valid login, production MFA email, and a completed password reset were not exercised because the production API did not respond. That API was not part of this frontend release.
 
 ### Current production
 
-Checked read-only on 22 September 2026. Nothing was deployed.
-
 - Live frontend: Hostinger Node.js site for `blueashdigital.tech`, username `u832905293`, order `1009908557`.
 - Build settings: Node 22, Vite, root directory `frontend`, output `dist`, npm, build script `build`.
-- Latest completed deployment: `01a05481-ce71-7008-9732-5de55fc03d93`, git commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`, updated 30 August 2026.
-- The live homepage title was still “Blue Ash Digital Portal”.
-- `https://blueashdigital.tech/signin` returned HTTP 200 HTML, which is the existing SPA fallback.
+- Latest completed deployment: `01a0cc01-5cef-7369-bdfa-8b1f50fc9544`, git commit `02097001ca7fa4c60a75b63cc2db13ab0e406723`, 22 September 2026.
 - `docker-compose.yml` pins a frontend image at `9eb0da3b0c5c6fa12c127d6d7348e20b9b3c6108`. Caddy publishes the API, not the apex site. A website deploy must not replace that image, the API, the database, the Agent, or the TV app.
 
-The local production bundle after the auth-request bound was CSS 25.83 kB (6.20 kB gzip) and JS 270.11 kB (79.56 kB gzip). No project lint configuration exists. TypeScript checking is the `tsc -b` step inside `npm run build`. Frontend tests: 33 passed.
+The production bundle is CSS 25.83 kB (6.20 kB gzip) and JS 270.11 kB (79.56 kB gzip). Frontend tests before the push: 33 passed. Backend local-SMTP tests: 5 passed.
 
 ## Next step
 
-The public site and the local MFA checks are complete enough for a release decision. Deploying the Hostinger frontend still requires a separate approval. The rollback source until that approval is commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. Remaining risk: production SMTP was not exercised, and the local Radar return was confirmed by navigation to `https://radar.localhost/jobs` rather than by a running Radar application.
+The public website is live at `02097001ca7fa4c60a75b63cc2db13ab0e406723`. The production Portal API did not answer during the smoke test, so production MFA and a completed password reset still need a check once `https://api.blueashdigital.tech` responds. The frontend rollback source is commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`.

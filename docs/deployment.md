@@ -6,7 +6,7 @@
 - Caddy owns `api.blueashdigital.tech` on the VPS.
 - Hostinger's managed frontend owns `blueashdigital.tech` and `www.blueashdigital.tech`.
 - The public site and portal frontend architecture, including what is still pending before a live website deploy, is in [website.md](website.md).
-- As of 22 September 2026 the live Hostinger frontend was still the completed Node.js deployment `01a05481-ce71-7008-9732-5de55fc03d93` of commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. Later local commits have not been deployed. Do not deploy without a separate approval. Rolling back the frontend means redeploying that live commit through the existing Hostinger Node.js deployment. Do not change the API image, database, Agent, or TV app as part of a website deploy. A signed-out sign-in screen no longer waits on an unbounded session probe; see [website.md](website.md).
+- As of 22 September 2026 the live Hostinger frontend is Node.js deployment `01a0cc01-5cef-7369-bdfa-8b1f50fc9544` of commit `02097001ca7fa4c60a75b63cc2db13ab0e406723`. Git auto-deployment is enabled for `main`, so a push to `origin/main` starts another frontend build. Rolling back the frontend means redeploying commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887` (deployment `01a05481-ce71-7008-9732-5de55fc03d93`) through the existing Hostinger Node.js deployment. Do not change the API image, database, Agent, or TV app as part of a website deploy. A signed-out sign-in screen no longer waits on an unbounded session probe; see [website.md](website.md).
 - `DEPLOYMENT_VERSION` is required and must be the full approved release commit SHA.
 - `SOURCE_VERSION` is deprecated and ignored.
 - No `traefik-public` network is required.
