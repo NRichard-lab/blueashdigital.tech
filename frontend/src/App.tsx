@@ -150,12 +150,18 @@ export function App() {
 
   async function handleMfaVerify(event: React.FormEvent) {
     event.preventDefault();
+    if (loginRequestPending.current) return;
+    loginRequestPending.current = true;
+    setIsLoggingIn(true);
     setError("");
     try {
       const result = await api.verifyMfa(mfaCode);
       completeAuthentication(result.user, result.return_to ?? mfaPrompt?.return_to ?? returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid or expired verification code.");
+    } finally {
+      loginRequestPending.current = false;
+      setIsLoggingIn(false);
     }
   }
 

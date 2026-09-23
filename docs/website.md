@@ -28,6 +28,8 @@ Public marketing routes render immediately and do not call the Portal API. `/sig
 
 The earlier sign-in delay happened because auth screens waited for that probe, and the probe used `fetch` with no timeout. An unreachable `https://api.blueashdigital.tech` therefore held the boot screen until the browser connection timeout, about 16 seconds. The form is no longer behind that wait. A signed-in visitor may see the form briefly before the probe redirects them. That does not create a session.
 
+Login, MFA verify, MFA resend, MFA cancel, forgot-password, and reset-password submissions use a separate 12 second client bound (`AUTH_REQUEST_TIMEOUT_MS`). That is longer than the session probe so a slow but healthy authentication response can still finish. If the request aborts or the network fails, the form leaves its pending state, the submit control is enabled again, and the page shows: “We couldn't reach Blue Ash Digital. Check your connection and try again.” That message is not the invalid-credentials message, and a timeout does not create a session. HTTP error text from the API, including “Invalid username/email or password.”, is unchanged.
+
 `/portal` and a homepage `returnTo` stay gated on the probe so an unconfirmed session cannot see the portal or skip the allowlist. If the probe does not succeed within 4 seconds, those routes send the visitor to sign-in.
 
 After that check:
@@ -102,15 +104,27 @@ Images, marks, and fonts are in `frontend/public/brand` and `frontend/public/fon
 - A dark marketing theme. The approved design is the light Figma palette.
 - Remember-me and public registration.
 
-### Pending before a live website deploy
+### Authentication checks on the isolated local stack
 
-- Signed-in browser checks for `/signin` and `/forgot-password` redirecting to `/portal`.
-- Successful username login, successful email login, incorrect credentials against a responding API, MFA challenge, incorrect MFA code, and successful MFA completion.
-- Invalid, expired, and valid password-reset completion. A missing token is already handled in the page and does not call the API.
-- The production API did not accept a connection from this environment. Docker CLI is installed, but the Docker Desktop engine pipe `dockerDesktopLinuxEngine` is not running, so the isolated stack could not be started. No production infrastructure was changed to work around that.
+Checked on 22 September 2026 against Docker Postgres and the local backend only. The frontend dev server used `http://localhost:8000`. Email delivery is not configured in that stack, so MFA and a known-account reset email are not sent. No production account, DNS record, or Hostinger site was changed.
+
+- Email login and username login both opened `/portal`. Refresh kept the session.
+- A signed-in visit to `/signin` or `/forgot-password` went to `/portal`. A signed-out visit to `/portal` went to `/signin`. No redirect loop.
+- An incorrect password stayed on sign-in with “Invalid username/email or password.” and re-enabled Sign In. An unknown account returned the same API message. Empty required fields were blocked by the form before a request.
+- With the API unreachable, login, forgot-password, and reset-password each returned to an enabled form in about 12 seconds with the unreachable message above. That message is distinct from the invalid-credentials message.
+- Stopping the local API while a session already existed sent `/portal` back to sign-in. The portal shell was not left on screen. Starting the API again restored the existing local session.
+- An invalid session cookie returned HTTP 401. An empty login body returned HTTP 422.
+- `https://evil.example` kept the normal sign-in copy and, after a successful login, opened `/portal`. `https://radar.blueashdigital.tech/jobs` showed the continue copy. The local API origin is `https://radar.localhost`, so that production Radar URL was not returned and the session opened `/portal`. A return URL on the local origin, `https://radar.localhost/jobs`, was returned. Frontend tests still allow the production Radar origin and reject encoded external URLs, nested hosts, path traversal, and double encoding.
+- Administrator login did not open a session and did not show the MFA challenge. The form showed “Email service is currently disabled.” and Sign In was enabled again. A following visit to `/portal` went to sign-in. Incorrect and correct MFA codes, refresh or Back during a challenge, and `returnTo` through MFA were not exercised because no challenge was issued.
+- Unknown forgot-password returned the generic account message. A known account returned “Email service is currently disabled.” Invalid and expired reset tokens were rejected. A valid local reset token completed, the previous password was then rejected, and the new password signed in. Password mismatch is rejected in the page before a request. A missing token disables submit and does not call the API.
+
+### Still blocking a live website deploy
+
+- A real MFA challenge, rejection of a wrong code, completion with a correct code, and proof that refresh, Back, and `returnTo` cannot bypass MFA.
+- Delivery of a known-account password-reset email. The local stack has no mailbox.
 - A separate authorization to deploy. This document does not authorize one.
 
-The live rollback source remains `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The previous local candidate was `d183155f610a25a21010b597e49cac2369701868`. The session-probe change on `main` is the current local candidate and is not deployed.
+The live rollback source remains `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The previous local candidate was `4357acaac52139083f3c183609e37668c14c89e9`. The auth-request bound on `main` is the current local candidate and is not deployed.
 
 ### Current production
 
@@ -123,8 +137,8 @@ Checked read-only on 22 September 2026. Nothing was deployed.
 - `https://blueashdigital.tech/signin` returned HTTP 200 HTML, which is the existing SPA fallback.
 - `docker-compose.yml` pins a frontend image at `9eb0da3b0c5c6fa12c127d6d7348e20b9b3c6108`. Caddy publishes the API, not the apex site. A website deploy must not replace that image, the API, the database, the Agent, or the TV app.
 
-The local production bundle after the session-probe change was CSS 25.83 kB (6.20 kB gzip) and JS 269.54 kB (79.42 kB gzip). No project lint configuration exists; TypeScript checking is the `tsc -b` step inside `npm run build`. Frontend tests: 29 passed.
+The local production bundle after the auth-request bound was CSS 25.83 kB (6.20 kB gzip) and JS 270.11 kB (79.56 kB gzip). No project lint configuration exists. TypeScript checking is the `tsc -b` step inside `npm run build`. Frontend tests: 33 passed.
 
 ## Next step
 
-Start the isolated local stack, or another non-production API, and complete the pending signed-in, MFA, and password-reset checks. Do not deploy the Hostinger frontend until those checks pass and a separate deployment approval is given. The rollback source until then remains commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`.
+MFA still has to be verified with a non-production mailbox that can deliver a challenge without changing production email settings. Do not deploy the Hostinger frontend until that check passes and a separate deployment approval is given. The rollback source until then remains commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`.

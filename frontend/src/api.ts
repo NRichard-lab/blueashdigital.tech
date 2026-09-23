@@ -180,24 +180,37 @@ export function formatApiError(error: unknown, fallback = "Request failed."): st
 }
 
 export const SESSION_PROBE_TIMEOUT_MS = 4000;
+export const AUTH_REQUEST_TIMEOUT_MS = 12000;
+export const AUTH_UNREACHABLE_MESSAGE = "We couldn't reach Blue Ash Digital. Check your connection and try again.";
 
 export function createSessionProbeSignal(timeoutMs = SESSION_PROBE_TIMEOUT_MS): AbortSignal {
   return AbortSignal.timeout(timeoutMs);
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export function createAuthRequestSignal(timeoutMs = AUTH_REQUEST_TIMEOUT_MS): AbortSignal {
+  return AbortSignal.timeout(timeoutMs);
+}
+
+type BoundedRequest = RequestInit & { unreachableMessage?: string };
+
+function boundedAuth(init: RequestInit): BoundedRequest {
+  return { ...init, signal: createAuthRequestSignal(), unreachableMessage: AUTH_UNREACHABLE_MESSAGE };
+}
+
+async function request<T>(path: string, options: BoundedRequest = {}): Promise<T> {
+  const { unreachableMessage, ...init } = options;
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(options.headers ?? {}),
+        ...(init.headers ?? {}),
       },
-      ...options,
+      ...init,
     });
   } catch {
-    throw new Error("Network request failed. Please check your connection and try again.");
+    throw new Error(unreachableMessage ?? "Network request failed. Please check your connection and try again.");
   }
 
   if (!response.ok) {
@@ -217,17 +230,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   login: (identifier: string, password: string, returnTo: string | null) =>
-    request<LoginResponse>("/api/auth/login", {
+    request<LoginResponse>("/api/auth/login", boundedAuth({
       method: "POST",
       body: JSON.stringify({ identifier, password, return_to: returnTo }),
-    }),
+    })),
   verifyMfa: (code: string) =>
-    request<MfaVerifyResponse>("/api/auth/mfa/verify", {
+    request<MfaVerifyResponse>("/api/auth/mfa/verify", boundedAuth({
       method: "POST",
       body: JSON.stringify({ code }),
-    }),
-  resendMfa: () => request<MfaRequired>("/api/auth/mfa/resend", { method: "POST" }),
-  cancelMfa: () => request<void>("/api/auth/mfa/cancel", { method: "POST" }),
+    })),
+  resendMfa: () => request<MfaRequired>("/api/auth/mfa/resend", boundedAuth({ method: "POST" })),
+  cancelMfa: () => request<void>("/api/auth/mfa/cancel", boundedAuth({ method: "POST" })),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   me: () => request<CurrentUser>("/api/profile/me", { signal: createSessionProbeSignal() }),
   apps: () => request<PortalApplication[]>("/api/apps"),
@@ -276,13 +289,13 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   requestPasswordReset: (identifier: string) =>
-    request<{ message: string }>("/api/auth/password-reset/request", {
+    request<{ message: string }>("/api/auth/password-reset/request", boundedAuth({
       method: "POST",
       body: JSON.stringify({ identifier }),
-    }),
+    })),
   completePasswordReset: (token: string, password: string) =>
-    request<{ message: string }>("/api/auth/password-reset/complete", {
+    request<{ message: string }>("/api/auth/password-reset/complete", boundedAuth({
       method: "POST",
       body: JSON.stringify({ token, password }),
-    }),
+    })),
 };

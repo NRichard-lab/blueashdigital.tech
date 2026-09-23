@@ -59,7 +59,7 @@ export function SignInScreen(props: SignInProps) {
               />
             </label>
             {props.error ? <div className="form-error" role="alert">{props.error}</div> : null}
-            <button className="btn btn-accent" type="submit"><ShieldCheck size={18} aria-hidden="true" /> Verify</button>
+            <button className="btn btn-accent" type="submit" disabled={props.isLoggingIn}><ShieldCheck size={18} aria-hidden="true" /> {props.isLoggingIn ? "Verifying..." : "Verify"}</button>
             <div className="auth-links">
               <button className="text-button" type="button" onClick={props.onResend}>Resend code</button>
               <button className="text-button" type="button" onClick={props.onCancel}>Cancel</button>
@@ -102,15 +102,20 @@ export function ForgotPasswordScreen() {
   const [identifier, setIdentifier] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setError("");
     try {
       const result = await api.requestPasswordReset(identifier);
       setMessage(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to request password reset.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -123,11 +128,11 @@ export function ForgotPasswordScreen() {
           <p className="auth-lead">Enter the username or email for an existing account.</p>
           <label>
             Username or email
-            <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required />
+            <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" disabled={submitting} required />
           </label>
           {message ? <div className="success-banner" role="status">{message}</div> : null}
           {error ? <div className="form-error" role="alert">{error}</div> : null}
-          <button className="btn btn-accent" type="submit"><Mail size={18} aria-hidden="true" /> Send reset link</button>
+          <button className="btn btn-accent" type="submit" disabled={submitting}><Mail size={18} aria-hidden="true" /> {submitting ? "Sending..." : "Send reset link"}</button>
           <p className="auth-account"><a href={signInPath(window.location.search)}>Back to sign in</a></p>
         </form>
       </section>
@@ -142,10 +147,12 @@ export function ResetPasswordScreen() {
   const [confirm, setConfirm] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const token = new URLSearchParams(window.location.search).get("token") ?? "";
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError("");
     if (!token) {
       setError("This reset link is missing its token. Request a new password reset.");
@@ -155,11 +162,14 @@ export function ResetPasswordScreen() {
       setError("Passwords do not match.");
       return;
     }
+    setSubmitting(true);
     try {
       const result = await api.completePasswordReset(token, password);
       setMessage(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to reset password.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -172,16 +182,16 @@ export function ResetPasswordScreen() {
           <p className="auth-lead">Choose a new password for your portal account.</p>
           <label>
             New password
-            <input value={password} type="password" autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} required minLength={12} />
+            <input value={password} type="password" autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} disabled={submitting} required minLength={12} />
           </label>
           <label>
             Confirm password
-            <input value={confirm} type="password" autoComplete="new-password" onChange={(event) => setConfirm(event.target.value)} required minLength={12} />
+            <input value={confirm} type="password" autoComplete="new-password" onChange={(event) => setConfirm(event.target.value)} disabled={submitting} required minLength={12} />
           </label>
           {!token ? <div className="form-error" role="alert">This reset link is missing its token. Request a new password reset.</div> : null}
           {message ? <div className="success-banner" role="status">{message}</div> : null}
           {error ? <div className="form-error" role="alert">{error}</div> : null}
-          <button className="btn btn-accent" type="submit" disabled={!token}>Reset password</button>
+          <button className="btn btn-accent" type="submit" disabled={!token || submitting}>{submitting ? "Resetting..." : "Reset password"}</button>
           <p className="auth-account"><a href="/signin">Back to sign in</a></p>
         </form>
       </section>
