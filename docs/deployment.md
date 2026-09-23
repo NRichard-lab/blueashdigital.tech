@@ -13,6 +13,44 @@
 
 Use `.env.example` only as a variable checklist. Keep all real secret values in Hostinger's project environment and outside Git.
 
+## Production API reachability (22 September 2026)
+
+The public website deploy did not change DNS, Caddy, the VPS, Compose, the API image, the database, or mail. `https://api.blueashdigital.tech/api/health` failed because the `api` A record pointed at `174.16.206.226` instead of the VPS. On 22 September 2026 that one A record was set back to `31.220.58.251` with `overwrite: true` for name `api` and type `A` only. Nothing else in the zone was changed, and no service was restarted.
+
+Expected path:
+
+```text
+browser -> api.blueashdigital.tech -> A record -> Hostinger VPS 31.220.58.251
+-> Caddy (blueashdigital-tech-caddy-1, ports 80 and 443)
+-> backend:8000 (blueashdigital-tech-backend-1)
+-> PostgreSQL on the Compose network only (blueashdigital-tech-postgres-1, port 5432)
+```
+
+`/api/health` does not query PostgreSQL or SMTP. Production Compose does not set `SMTP_HOST`. The live files are `/docker/blueashdigital-tech/docker-compose.yml` and `/docker/blueashdigital-tech/Caddyfile`. Caddy proxies `api.blueashdigital.tech` to `backend:8000`.
+
+Checked the same evening, with no restarts and no DNS edit:
+
+| Layer | Result |
+|---|---|
+| Backend container | Healthy since 30 August 2026, image `c2e75549702ac8a511eca9df87f8a6838d9eec33`, 0 restarts |
+| Inside the backend container | HTTP 200 `{"status":"ok","service":"blueash-portal-backend"}` |
+| Caddy on the VPS | HTTP 200 for the same URL on `127.0.0.1:443` |
+| Public hostname | DNS A `174.16.206.226`. TCP 443 and 80 time out before TLS. No AAAA record |
+| Forced connection to `31.220.58.251` | HTTP 200 through Caddy. Certificate `CN=api.blueashdigital.tech`, Let's Encrypt, 23 August 2026 through 21 November 2026 |
+
+PostgreSQL accepts connections. The VPS has been up since 23 August 2026. Host firewall `ufw` is inactive, and the Hostinger firewall group is unset. Ports 80 and 443 on `31.220.58.251` accept TCP.
+
+DNS history for the `api` A record:
+
+- 28 August 2026 and 5 September 2026 13:40 UTC: `31.220.58.251` (snapshot `178362051`)
+- 5 September 2026 17:00 UTC: `174.29.193.100` (snapshot `178398432`)
+- 12 September 2026: `97.118.224.208` (snapshot `180180679`)
+- 22 September 2026: `174.16.206.226`, which does not accept TCP 22, 80, or 443
+
+`radar` and `lab` still point at `174.16.206.226`. Restoring snapshot `180180679` would roll the whole zone backward, so that snapshot is not the repair. To undo only this change, set the `api` A record back to `174.16.206.226`.
+
+After the update, authoritative DNS and public resolvers `1.1.1.1` and `8.8.8.8` returned `31.220.58.251`. `https://api.blueashdigital.tech/api/health` returned HTTP 200 in about 156 ms. On `https://blueashdigital.tech/signin`, `GET /api/profile/me` finished in about 357 ms and left the signed-out form in place. One unknown sign-in returned “Invalid username/email or password.” in about 871 ms and re-enabled Sign In. An unknown forgot-password request reached `/api/auth/password-reset/request` in about 151 ms and returned the generic account message. No production password was changed. A valid production sign-in, MFA, and a completed password reset were not run because no authorized test account was used.
+
 ## Phase 3 Migration (Not Yet Authorized For Production)
 
 The locally validated application-auth transition is:

@@ -11,7 +11,7 @@ The public site and the portal share one React/Vite frontend. They do not share 
 | `/` | Marketing homepage |
 | `/#products`, `/#about`, `/#building` | Homepage sections |
 | `/products`, `/about`, `/development` | Aliases that open the homepage at those sections |
-| `/products/blue-ash-reel` | Blue Ash Reel product page |
+| `/products/blue-ash-reel` | Blue Ash Reel product page. The leaf mark links to `https://blueashreel.com/`. Both Sign In buttons on this page link to `https://blueashreel.com/login`. |
 | `/support` | Support entry, including `#documentation` |
 | `/privacy`, `/terms` | Notices that formal documents are not published |
 | `/signin` | Existing sign-in and email MFA, restyled |
@@ -172,4 +172,4 @@ The production bundle is CSS 25.83 kB (6.20 kB gzip) and JS 270.11 kB (79.56 kB 
 
 ## Next step
 
-The public website is live at `02097001ca7fa4c60a75b63cc2db13ab0e406723`. The production Portal API did not answer during the smoke test, so production MFA and a completed password reset still need a check once `https://api.blueashdigital.tech` responds. The frontend rollback source is commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`.
+The public website is live at `02097001ca7fa4c60a75b63cc2db13ab0e406723`. The production Portal API is reachable again: the `api` A record was set to VPS `31.220.58.251` on 22 September 2026, and `https://api.blueashdigital.tech/api/health` returned HTTP 200. An unknown sign-in on `/signin` returned the invalid-credentials message. Production MFA and a completed password reset were not run. The frontend rollback source is commit `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The API diagnosis is in [deployment.md](deployment.md).

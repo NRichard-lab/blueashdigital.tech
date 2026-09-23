@@ -22,7 +22,9 @@ export function ReelLogo({ surface }: { surface: Surface }) {
   const onDark = surface === "dark";
   return (
     <span className={`logo reel-logo ${onDark ? "logo-on-dark" : "logo-on-light"}`}>
-      <img className="reel-mark" src="/brand/reel-mark.svg" alt="" width={38} height={38} />
+      <a className="reel-mark-link" href="https://blueashreel.com/">
+        <img className="reel-mark" src="/brand/reel-leaf.png" alt="Blue Ash Reel" width={42} height={47} />
+      </a>
       <span className="logo-words">
         <span className="logo-name">Blue Ash</span>
         <span className="logo-descriptor">Reel</span>

@@ -226,10 +226,17 @@ body.site-body {
   color: var(--body);
 }
 
+.reel-mark-link {
+  display: inline-flex;
+  line-height: 0;
+  border-radius: 8px;
+}
+
 .reel-mark {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 47px;
   display: block;
+  object-fit: contain;
 }
 
 .nav-panel nav ul {

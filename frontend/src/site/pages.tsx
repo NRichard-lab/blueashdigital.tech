@@ -171,7 +171,7 @@ function ReelPage() {
             <p className="lede">Your personal media, beautifully organized and ready to share, all in one place. Your library stays at home, with built-in privacy and only essential data collected.</p>
             <div className="action-row">
               <a className="btn btn-accent" href="/#building">Follow Development</a>
-              <a className="btn btn-ghost-dark" href="/signin">Sign In</a>
+              <a className="btn btn-ghost-dark" href="https://blueashreel.com/login">Sign In</a>
             </div>
             <p className="cue">Your own media—not another streaming subscription.</p>
           </div>
@@ -271,7 +271,7 @@ function ReelPage() {
 
       <section className="callout callout-blue">
         <h2>A personal library should feel personal.</h2>
-        <a className="btn btn-cream" href="/signin">Sign In</a>
+        <a className="btn btn-cream" href="https://blueashreel.com/login">Sign In</a>
       </section>
     </SiteFrame>
   );
