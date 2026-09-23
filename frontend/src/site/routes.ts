@@ -54,6 +54,15 @@ export function shouldRedirectHomeToSignIn(pathname: string, search: string): bo
   return new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).has("returnTo");
 }
 
+export type SessionPresentation = "gated" | "immediate" | "public";
+
+export function sessionPresentation(pathname: string, search: string): SessionPresentation {
+  const route = resolveRoute(pathname);
+  if (route.kind === "portal" || shouldRedirectHomeToSignIn(pathname, search)) return "gated";
+  if (route.kind === "auth") return "immediate";
+  return "public";
+}
+
 export function navigationAfterSessionCheck(input: {
   pathname: string;
   search: string;

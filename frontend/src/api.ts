@@ -179,6 +179,12 @@ export function formatApiError(error: unknown, fallback = "Request failed."): st
   return fallback;
 }
 
+export const SESSION_PROBE_TIMEOUT_MS = 4000;
+
+export function createSessionProbeSignal(timeoutMs = SESSION_PROBE_TIMEOUT_MS): AbortSignal {
+  return AbortSignal.timeout(timeoutMs);
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
@@ -223,7 +229,7 @@ export const api = {
   resendMfa: () => request<MfaRequired>("/api/auth/mfa/resend", { method: "POST" }),
   cancelMfa: () => request<void>("/api/auth/mfa/cancel", { method: "POST" }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
-  me: () => request<CurrentUser>("/api/profile/me"),
+  me: () => request<CurrentUser>("/api/profile/me", { signal: createSessionProbeSignal() }),
   apps: () => request<PortalApplication[]>("/api/apps"),
   launchApp: (id: string) => request<{ launch_url: string }>(`/api/apps/${id}/launch`),
   adminApps: () => request<PortalApplication[]>("/api/admin/applications"),

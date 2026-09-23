@@ -24,7 +24,11 @@ Routes are resolved in `frontend/src/site/routes.ts`. Links are normal document 
 
 ## Marketing, authentication, and portal
 
-Marketing pages render immediately and do not wait on the session request. Auth and portal routes wait for `GET /api/profile/me` before choosing a screen, so a signed-in session can still be honored.
+Public marketing routes render immediately and do not call the Portal API. `/signin`, `/forgot-password`, and `/reset-password` also render immediately. `GET /api/profile/me` still runs in the background on those auth routes, and on `/portal` and `/?returnTo=…`, with a 4 second abort (`SESSION_PROBE_TIMEOUT_MS`). A successful probe still redirects a signed-in visitor from `/signin` or `/forgot-password` to `/portal`, or follows an allowlisted `returnTo`. Timeout, offline, HTTP 401, HTTP 500, and a malformed response all fail closed: the visitor stays signed out, and the portal shell is not shown.
+
+The earlier sign-in delay happened because auth screens waited for that probe, and the probe used `fetch` with no timeout. An unreachable `https://api.blueashdigital.tech` therefore held the boot screen until the browser connection timeout, about 16 seconds. The form is no longer behind that wait. A signed-in visitor may see the form briefly before the probe redirects them. That does not create a session.
+
+`/portal` and a homepage `returnTo` stay gated on the probe so an unconfirmed session cannot see the portal or skip the allowlist. If the probe does not succeed within 4 seconds, those routes send the visitor to sign-in.
 
 After that check:
 
@@ -83,8 +87,11 @@ Images, marks, and fonts are in `frontend/public/brand` and `frontend/public/fon
 
 ### Partial
 
-- Signed-out route and redirect behavior was checked in the browser against the local dev server.
-- The production build was previewed locally at `http://127.0.0.1:4173/`. Every public route returned HTTP 200 from that preview.
+- Signed-out routes, history, and `returnTo` rejection were checked in the browser against the local dev server while `https://api.blueashdigital.tech` was unreachable.
+- Public pages made no Portal API requests and still rendered.
+- `/signin` showed the form on first paint. Document load was about 85 ms. Forgot-password and reset-password also rendered immediately.
+- With the API unreachable, `/portal` and `/?returnTo=…` reached sign-in in about 4.2 seconds instead of waiting for the browser connection timeout.
+- The production build was previewed locally at `http://127.0.0.1:4174/`. Every listed route returned HTTP 200.
 - Email MFA is restyled inside the existing sign-in card. A live MFA challenge was not exercised.
 
 ### Deferred
@@ -98,10 +105,12 @@ Images, marks, and fonts are in `frontend/public/brand` and `frontend/public/fon
 ### Pending before a live website deploy
 
 - Signed-in browser checks for `/signin` and `/forgot-password` redirecting to `/portal`.
-- Successful username login, successful email login, incorrect credentials, MFA challenge, incorrect MFA code, and successful MFA completion against an isolated API.
-- A valid password-reset completion against a safe test account. Missing and invalid tokens still need that same API for the invalid-token response.
-- The production API at `api.blueashdigital.tech` did not accept a connection from the review environment, and the local Docker daemon was not running, so those checks could not be executed here.
+- Successful username login, successful email login, incorrect credentials against a responding API, MFA challenge, incorrect MFA code, and successful MFA completion.
+- Invalid, expired, and valid password-reset completion. A missing token is already handled in the page and does not call the API.
+- The production API did not accept a connection from this environment. Docker CLI is installed, but the Docker Desktop engine pipe `dockerDesktopLinuxEngine` is not running, so the isolated stack could not be started. No production infrastructure was changed to work around that.
 - A separate authorization to deploy. This document does not authorize one.
+
+The live rollback source remains `f31acdfbd39b9abf673d24ee026ebeb7e6628887`. The previous local candidate was `d183155f610a25a21010b597e49cac2369701868`. The session-probe change on `main` is the current local candidate and is not deployed.
 
 ### Current production
 
@@ -114,7 +123,7 @@ Checked read-only on 22 September 2026. Nothing was deployed.
 - `https://blueashdigital.tech/signin` returned HTTP 200 HTML, which is the existing SPA fallback.
 - `docker-compose.yml` pins a frontend image at `9eb0da3b0c5c6fa12c127d6d7348e20b9b3c6108`. Caddy publishes the API, not the apex site. A website deploy must not replace that image, the API, the database, the Agent, or the TV app.
 
-The local production bundle recorded after this work was CSS 25.83 kB (6.20 kB gzip) and JS 269.22 kB (79.33 kB gzip). No project lint configuration exists; TypeScript checking is the `tsc -b` step inside `npm run build`.
+The local production bundle after the session-probe change was CSS 25.83 kB (6.20 kB gzip) and JS 269.54 kB (79.42 kB gzip). No project lint configuration exists; TypeScript checking is the `tsc -b` step inside `npm run build`. Frontend tests: 29 passed.
 
 ## Next step
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { navigationAfterSessionCheck, normalizePath, resolveRoute, shouldRedirectHomeToSignIn, signInPath } from "./routes";
+import { navigationAfterSessionCheck, normalizePath, resolveRoute, sessionPresentation, shouldRedirectHomeToSignIn, signInPath } from "./routes";
 
 describe("public site routes", () => {
   it("normalizes a trailing slash", () => {
@@ -98,5 +98,22 @@ describe("public site routes", () => {
       authenticated: true,
       returnTo: null,
     })).toBeNull();
+  });
+
+  it("shows sign-in immediately and does not probe public pages", () => {
+    expect(sessionPresentation("/signin", "")).toBe("immediate");
+    expect(sessionPresentation("/forgot-password", "")).toBe("immediate");
+    expect(sessionPresentation("/reset-password", "?token=abc")).toBe("immediate");
+    expect(sessionPresentation("/", "")).toBe("public");
+    expect(sessionPresentation("/products", "")).toBe("public");
+    expect(sessionPresentation("/products/blue-ash-reel", "")).toBe("public");
+    expect(sessionPresentation("/about", "")).toBe("public");
+    expect(sessionPresentation("/development", "")).toBe("public");
+    expect(sessionPresentation("/support", "")).toBe("public");
+    expect(sessionPresentation("/privacy", "")).toBe("public");
+    expect(sessionPresentation("/terms", "")).toBe("public");
+    expect(sessionPresentation("/missing", "")).toBe("public");
+    expect(sessionPresentation("/portal", "")).toBe("gated");
+    expect(sessionPresentation("/", "?returnTo=https%3A%2F%2Fradar.blueashdigital.tech%2Fjobs")).toBe("gated");
   });
 });

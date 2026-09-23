@@ -4,7 +4,7 @@ import { api, AuthenticationSettings, CurrentUser, EmailSettings, EmailSettingsP
 import { normalizeReturnTo } from "./returnTo";
 import { ForgotPasswordScreen, ResetPasswordScreen, SignInScreen } from "./site/auth";
 import { Marketing } from "./site/pages";
-import { navigationAfterSessionCheck, resolveRoute, shouldRedirectHomeToSignIn } from "./site/routes";
+import { navigationAfterSessionCheck, resolveRoute, sessionPresentation, shouldRedirectHomeToSignIn } from "./site/routes";
 
 type View = "dashboard" | "applications" | "admin-users" | "admin-apps" | "admin-audit" | "admin-settings" | "profile";
 type UserDraft = {
@@ -45,11 +45,12 @@ export function App() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => sessionPresentation(window.location.pathname, window.location.search) === "gated");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const loginRequestPending = useRef(false);
 
   useEffect(() => {
+    if (sessionPresentation(window.location.pathname, window.location.search) === "public") return;
     let redirecting = false;
     api.me().then((currentUser) => {
       const href = navigationAfterSessionCheck({
